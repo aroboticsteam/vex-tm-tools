@@ -267,7 +267,7 @@ def create_app() -> FastAPI:
         raise RuntimeError("SECRET_KEY is not set. Refusing to start.")
 
     app = FastAPI(
-        title="QEComp",
+        title="TMTools",
         version="1.0.0",
         lifespan=lifespan,
     )

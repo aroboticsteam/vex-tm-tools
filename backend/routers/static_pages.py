@@ -104,7 +104,7 @@ _INDEX_PAGE_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>QEComp Teleprompter Index</title>
+<title>TMTools Teleprompter Index</title>
 <style>
   body {{
     font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;

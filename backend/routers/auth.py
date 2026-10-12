@@ -312,7 +312,7 @@ async def logout(
 # ── Local emergency admin (plan §3.9 / Appendix B.9) ─────────────────────
 
 _ADMIN_LOGIN_PAGE = """<!doctype html>
-<html><head><title>QEComp Emergency Admin Login</title></head>
+<html><head><title>TMTools Emergency Admin Login</title></head>
 <body>
 <h1>Emergency Admin Login</h1>
 <form method="post" action="/admin_login">
