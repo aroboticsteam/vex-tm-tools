@@ -276,11 +276,11 @@ function PageFormModal({ editing, onClose }: { editing: ButtonPage | 'new' | nul
       <div className="space-y-3">
         <div>
           <Label>Name</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
+          <Input value={name} onChange={(e) => setName(e.target.value)} aria-label="Page name" />
         </div>
         <div>
           <Label>Columns (1–12)</Label>
-          <Input type="number" min={1} max={12} value={columns} onChange={(e) => setColumns(Number(e.target.value))} />
+          <Input type="number" min={1} max={12} value={columns} onChange={(e) => setColumns(Number(e.target.value))} aria-label="Columns" />
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>

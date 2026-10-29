@@ -26,3 +26,8 @@ venv/
 backend/.env
 .coverage
 htmlcov/
+# Local E2E runs (docs/TESTING.md)
+backend/static/frontend/
+frontend/e2e/.auth/
+frontend/test-results/
+frontend/playwright-report/
