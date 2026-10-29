@@ -455,3 +455,27 @@ async def test_inline_condition_action_stops_chain(engine, patch_loader):
     assert err is None
     assert executed == 1  # chain stopped at the condition; second action never ran
     assert len(inst.calls) == 0
+
+
+async def test_run_actions_executes_chain_and_reports(engine, patch_loader):
+    wled = FakeIntegration(entity_id="wled.field1")
+    patch_loader["wled.field1"] = wled
+    actions = [
+        {"service": "wled.set_power", "target": "wled.field1", "data": {"on": True}},
+        {"service": "wled.set_preset", "target": "missing.entity", "data": {"preset": 1}},
+    ]
+    result = await engine.run_actions(actions, uuid.uuid4(), {"button": "Go"})
+    assert wled.calls == [("set_power", {"on": True})]
+    assert result["status"] == "failed"  # second action has no target
+    assert result["failed_action_index"] == 1
+    assert result["actions_executed"] == 2
+    assert [r["status"] for r in result["action_results"]] == ["success", "failed"]
+
+
+async def test_run_actions_renders_button_context(engine, patch_loader):
+    osc = FakeIntegration(entity_id="osc.main")
+    patch_loader["osc.main"] = osc
+    actions = [{"service": "osc.send", "target": "osc.main", "data": {"address": "/x", "args": ["{{ trigger.payload.button }}"]}}]
+    result = await engine.run_actions(actions, uuid.uuid4(), {"button": "Flash"})
+    assert result["status"] == "success"
+    assert osc.calls == [("send", {"address": "/x", "args": ["Flash"]})]
