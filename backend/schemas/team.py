@@ -1,10 +1,11 @@
 """Pydantic schemas mirroring `backend.models.team` (plan §8 / §11 Teams)."""
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TeamProfileRead(BaseModel):
@@ -18,6 +19,8 @@ class TeamProfileRead(BaseModel):
     video_processing_status: str = "NONE"
     cached_stats: dict[str, Any] | None = None
     extra_notes: str | None = None
+    website_url: str | None = None
+    logo_s3_key: str | None = None
     updated_at: datetime
 
 
@@ -29,6 +32,18 @@ class TeamProfileUpdate(BaseModel):
 
     pit_location: str | None = Field(default=None, max_length=100)
     extra_notes: str | None = None
+    #: http(s) link shown on the public team page; an empty string clears it.
+    website_url: str | None = Field(default=None, max_length=500)
+
+    @field_validator("website_url")
+    @classmethod
+    def _http_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if value and not re.match(r"^https?://[^\s]+$", value, re.IGNORECASE):
+            raise ValueError("website_url must be an http:// or https:// link")
+        return value
 
 
 class VideoProcessingStatus(BaseModel):

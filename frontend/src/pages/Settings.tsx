@@ -6,7 +6,10 @@ import { useUiStore } from '../stores/ui';
 import { ALL_PERMISSIONS } from '../stores/auth';
 import { PageHeader, Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Input, Label, Textarea } from '../components/ui/Input';
+import { Input, Label } from '../components/ui/Input';
+import { MatchRecordingsCard } from '../components/site/MatchRecordingsCard';
+import { SiteConfigEditor } from '../components/site/SiteConfigEditor';
+import { siteProblems, tidySite, type SiteConfig } from '../lib/siteConfig';
 import { Modal } from '../components/ui/Modal';
 import { Toggle } from '../components/ui/Toggle';
 import { CopyButton } from '../components/ui/CopyButton';
@@ -14,18 +17,6 @@ import { CopyButton } from '../components/ui/CopyButton';
 function settingValue(settings: { key: string; value: Record<string, unknown> }[] | undefined, key: string): Record<string, unknown> {
   return settings?.find((s) => s.key === key)?.value ?? {};
 }
-
-const SITE_TEMPLATE = JSON.stringify(
-  {
-    title: 'My Competition',
-    presented_by: '',
-    next_competition: { name: '', date: 'YYYY-MM-DD', teams: [] },
-    sponsors: [{ name: 'Sponsor', url: 'https://example.com', logo_url: '' }],
-    map: { image_url: '', rooms: [{ name: 'Room name', x: 50, y: 50, description: '', teams: [] }] },
-  },
-  null,
-  2,
-);
 
 export function SettingsPage() {
   const { data: settings } = useSettings();
@@ -44,8 +35,6 @@ export function SettingsPage() {
   const notifications = settingValue(settings, 'notifications');
   const site = settingValue(settings, 'site');
   const overlaySettings = settingValue(settings, 'overlay');
-  // The template is only an editing aid; it is never saved unless edited.
-  const initialSiteJson = Object.keys(site).length ? JSON.stringify(site, null, 2) : SITE_TEMPLATE;
 
   const [s3Endpoint, setS3Endpoint] = useState('');
   const [s3PublicEndpoint, setS3PublicEndpoint] = useState('');
@@ -61,7 +50,9 @@ export function SettingsPage() {
   const [ntfyServerUrl, setNtfyServerUrl] = useState('');
   const [ntfyTopic, setNtfyTopic] = useState('');
   const [ntfyEnabled, setNtfyEnabled] = useState(false);
-  const [siteJson, setSiteJson] = useState('');
+  // The site form edits a draft; it is only saved once something changed.
+  const [siteDraft, setSiteDraft] = useState<SiteConfig>({});
+  const [siteDirty, setSiteDirty] = useState(false);
   const [teamAlerts, setTeamAlerts] = useState(true);
   const [leadMatches, setLeadMatches] = useState(3);
   const [leadMinutes, setLeadMinutes] = useState(15);
@@ -88,7 +79,8 @@ export function SettingsPage() {
     setNtfyServerUrl(String(notifications.server_url ?? ''));
     setNtfyTopic(String(notifications.topic ?? ''));
     setNtfyEnabled(Boolean(notifications.enabled ?? false));
-    setSiteJson(initialSiteJson);
+    setSiteDraft(site as SiteConfig);
+    setSiteDirty(false);
     setTeamAlerts(Boolean(notifications.team_alerts_enabled ?? true));
     setLeadMatches(Number(notifications.lead_matches_x ?? 3));
     setLeadMinutes(Number(notifications.lead_minutes_y ?? 15));
@@ -106,15 +98,13 @@ export function SettingsPage() {
 
   function save() {
     let siteValue: Record<string, unknown> | null = null;
-    if (siteJson !== initialSiteJson) {
-      try {
-        const parsed: unknown = JSON.parse(siteJson || '{}');
-        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('must be a JSON object');
-        siteValue = parsed as Record<string, unknown>;
-      } catch (err) {
-        pushToast(`Public site settings: ${err instanceof Error ? err.message : 'invalid JSON'}`, 'error');
+    if (siteDirty) {
+      const problems = siteProblems(siteDraft);
+      if (problems.length) {
+        pushToast(`Public site settings: ${problems[0]}`, 'error');
         return;
       }
+      siteValue = tidySite(siteDraft);
     }
     updateSettings.mutate(
       {
@@ -269,18 +259,17 @@ export function SettingsPage() {
 
         <Card className="lg:col-span-2">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-vmd-textMuted">Public website (/site)</h2>
-          <p className="mb-2 text-xs text-vmd-textSubtle">
-            Title, next competition, sponsors, event map (image + room pins in % coordinates) and the “presented by” line, as JSON.
-          </p>
-          <Textarea
-            className="vmd-code-block w-full text-xs"
-            rows={14}
-            value={siteJson}
-            onChange={(e) => setSiteJson(e.target.value)}
+          <SiteConfigEditor
+            value={siteDraft}
+            onChange={(next) => {
+              setSiteDraft(next);
+              setSiteDirty(true);
+            }}
             disabled={!canEdit}
-            spellCheck={false}
           />
         </Card>
+
+        <MatchRecordingsCard canEdit={canEdit} />
 
         <Card>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-vmd-textMuted">Stream overlay</h2>

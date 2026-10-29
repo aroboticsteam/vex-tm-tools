@@ -320,12 +320,16 @@ export interface TeamProfile {
   video_processing_status: 'NONE' | 'PROCESSING' | 'DONE' | 'FAILED' | string;
   cached_stats: Record<string, unknown> | null;
   extra_notes: string | null;
+  website_url: string | null;
+  logo_s3_key: string | null;
   updated_at: string;
 }
 
 export interface TeamProfileUpdate {
   pit_location?: string | null;
   extra_notes?: string | null;
+  /** http(s) link for the public team page; an empty string clears it. */
+  website_url?: string | null;
 }
 
 export interface VideoProcessingStatus {

@@ -54,12 +54,13 @@
 <footer id="foot"></footer>
 <script>
 (function () {
-  var NAV = [['home', 'Home'], ['event', 'Event'], ['teams', 'Teams'], ['live', 'Livestreams'], ['map', 'Map']];
+  var NAV = [['home', 'Home'], ['event', 'Event'], ['teams', 'Teams'], ['live', 'Livestreams'], ['map', 'Map'], ['bus', 'Bus']];
   var view = document.getElementById('view'), cache = {}, timers = [];
 
   function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined && text !== null) n.textContent = text; return n; }
   function get(path) { return fetch('/api/v1/public/site/' + path).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }); }
   function fmtTime(ts) { return ts ? new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '–'; }
+  function recLink(m) { if (!m.recording_url) return ''; var a = el('a', null, '▶ Watch'); a.href = m.recording_url; a.target = '_blank'; a.rel = 'noopener'; return a; }
   function teamLink(n) { var a = el('a', null, n); a.href = '#team/' + encodeURIComponent(n); return a; }
   function num(v, d) { return v === null || v === undefined ? '–' : (d !== undefined && typeof v === 'number' ? v.toFixed(d) : v); }
   function clearTimers() { timers.forEach(clearInterval); timers = []; }
@@ -80,19 +81,32 @@
       var c = el('div', 'card stat'); c.appendChild(el('b', null, String(o.stats[s[0]]))); c.appendChild(el('span', null, s[1])); stats.appendChild(c);
     });
     box.appendChild(el('h2', null, 'Welcome to ' + o.title)); box.appendChild(stats);
+    var hl = o.highlights;
+    if (hl) {
+      var facts = [];
+      if (hl.active_programmes && hl.active_programmes.length) facts.push(['Active seasons', hl.active_programmes.map(function (p) { return p.label; }).join(' + ')]);
+      facts.push(['Awards this season', hl.total_awards]);
+      if (hl.best_world_skills) facts.push(['Best world skills rank', '#' + hl.best_world_skills.rank + ' · ' + hl.best_world_skills.team]);
+      if (hl.best_uk_skills) facts.push(['Top UK team (world skills)', '#' + hl.best_uk_skills.rank + ' · ' + hl.best_uk_skills.team]);
+      if (hl.top_combined_skills) facts.push(['Top combined skills', hl.top_combined_skills.total + ' · ' + hl.top_combined_skills.team]);
+      var hg = el('div', 'grid'); hg.style.marginTop = '.8rem';
+      facts.forEach(function (f) { var c2 = el('div', 'card stat'); c2.appendChild(el('b', null, String(f[1]))); c2.appendChild(el('span', null, f[0])); hg.appendChild(c2); });
+      box.appendChild(hg);
+    }
     var nc = o.next_competition;
     if (nc && nc.name) {
       var c = el('div', 'card'); c.style.marginTop = '1rem';
       c.appendChild(el('b', null, 'Next competition: ' + nc.name));
-      if (nc.date) {
-        var days = Math.ceil((new Date(nc.date + 'T00:00:00') - new Date()) / 86400000);
-        c.appendChild(el('div', 'muted', nc.date + (days >= 0 ? '  ·  ' + days + ' day' + (days === 1 ? '' : 's') + ' left' : '')));
-      }
+      var when = [nc.date, nc.location].filter(Boolean).join('  ·  ');
+      if (nc.days_until !== null && nc.days_until !== undefined && nc.days_until >= 0) when += (when ? '  ·  ' : '') + (nc.days_until === 0 ? 'today' : nc.days_until + ' day' + (nc.days_until === 1 ? '' : 's') + ' left');
+      if (when) c.appendChild(el('div', 'muted', when));
+      if (nc.description) c.appendChild(el('div', null, nc.description));
       if (nc.teams && nc.teams.length) c.appendChild(el('div', 'muted', 'Teams attending: ' + nc.teams.join(', ')));
+      [[nc.url, 'Event page'], [nc.registration_url, 'Register']].forEach(function (l) { if (l[0]) { var a = el('a', null, l[1]); a.href = l[0]; a.target = '_blank'; a.rel = 'noopener'; a.style.marginRight = '1rem'; c.appendChild(a); } });
       box.appendChild(c);
     }
     var links = el('div', 'grid'); links.style.marginTop = '1rem';
-    [['#event', 'Agenda, matches & rankings'], ['#teams', 'Team profiles'], ['#live', 'Livestreams'], ['#map', 'Event map'], ['/notify', 'Get match alerts on your phone']].forEach(function (l) {
+    [['#event', 'Agenda, matches & rankings'], ['#teams', 'Team profiles'], ['#live', 'Livestreams'], ['#map', 'Event map'], ['/site/leaderboard', 'Live leaderboards'], ['/notify', 'Get match alerts on your phone']].forEach(function (l) {
       var a = el('a', 'card teamcard', l[1]); a.href = l[0]; links.appendChild(a);
     });
     box.appendChild(links);
@@ -157,11 +171,11 @@
       if (!d.agenda.length) box.appendChild(el('div', 'empty', 'No agenda published yet.'));
     } else if (state.tab === 'matches') {
       var ms = d.matches.filter(function (m) { return inScope(m.division); });
-      box.appendChild(table(['Match', 'Time', 'Red', 'Blue', 'Score'], ms.map(function (m) {
+      box.appendChild(table(['Match', 'Time', 'Red', 'Blue', 'Score', ''], ms.map(function (m) {
         var r = el('span', 'red'), b = el('span', 'blue');
         m.red.forEach(function (n, i) { if (i) r.appendChild(document.createTextNode(', ')); r.appendChild(teamLink(n)); });
         m.blue.forEach(function (n, i) { if (i) b.appendChild(document.createTextNode(', ')); b.appendChild(teamLink(n)); });
-        return tr([m.label, fmtTime(m.scheduled_at), r, b, m.score ? m.score[0] + ' – ' + m.score[1] : ''], '');
+        return tr([m.label, fmtTime(m.scheduled_at), r, b, m.score ? m.score[0] + ' – ' + m.score[1] : '', recLink(m)], '');
       }), 'No matches scheduled yet.'));
     } else if (state.tab === 'rank') {
       box.appendChild(table(['Rank', 'Team', 'W-L-T', 'Avg pts', 'High'], d.rankings.filter(function (r) { return inScope(r.division); }).map(function (r) {
@@ -214,7 +228,11 @@
   function team(t) {
     var box = el('div');
     var back = el('a', null, '← All teams'); back.href = '#teams'; box.appendChild(back);
-    box.appendChild(el('h2', null, t.team_number + (t.team_name ? ' — ' + t.team_name : '')));
+    var heading = el('h2'); heading.style.display = 'flex'; heading.style.alignItems = 'center'; heading.style.gap = '.8rem';
+    if (t.logo_url) { var logo = el('img'); logo.src = t.logo_url; logo.alt = ''; logo.style.maxHeight = '56px'; logo.style.borderRadius = '8px'; heading.appendChild(logo); }
+    heading.appendChild(el('span', null, t.team_number + (t.team_name ? ' — ' + t.team_name : '')));
+    box.appendChild(heading);
+    if (t.website_url) { var site = el('a', null, t.website_url.replace(/^https?:\/\//, '')); site.href = t.website_url; site.target = '_blank'; site.rel = 'noopener noreferrer'; site.style.display = 'inline-block'; site.style.marginBottom = '.8rem'; box.appendChild(site); }
     function kv(title, pairs) {
       var c = el('div', 'card'); c.appendChild(el('b', null, title)); var dl = el('dl', 'kv'); dl.style.marginTop = '.5rem';
       pairs.forEach(function (p) { dl.appendChild(el('dt', null, p[0])); dl.appendChild(el('dd', null, p[1] === null || p[1] === undefined || p[1] === '' ? '–' : String(p[1]))); });
@@ -240,9 +258,9 @@
       box.appendChild(cl);
     }
     box.appendChild(el('h2', null, 'Schedule'));
-    box.appendChild(table(['Match', 'Time', 'Red', 'Blue', 'Score'], t.schedule.map(function (m) {
+    box.appendChild(table(['Match', 'Time', 'Red', 'Blue', 'Score', ''], t.schedule.map(function (m) {
       var own = function (list, cls) { var s = el('span', cls); list.forEach(function (n, i) { if (i) s.appendChild(document.createTextNode(', ')); s.appendChild(n === t.team_number ? el('b', null, n) : teamLink(n)); }); return s; };
-      return tr([m.label, fmtTime(m.scheduled_at), own(m.red, 'red'), own(m.blue, 'blue'), m.score ? m.score[0] + ' – ' + m.score[1] : ''], '');
+      return tr([m.label, fmtTime(m.scheduled_at), own(m.red, 'red'), own(m.blue, 'blue'), m.score ? m.score[0] + ' – ' + m.score[1] : '', recLink(m)], '');
     }), 'No matches scheduled yet.'));
     if (t.season.previous_rankings.length || t.season.award_list.length) {
       box.appendChild(el('h2', null, 'Season history'));
@@ -303,6 +321,18 @@
     return box;
   }
 
+  // ── Bus tracker ────────────────────────────────────────────────────
+  function bus(o) {
+    var b = o.bus_tracker;
+    if (!b) return el('div', 'empty', 'No bus information has been published yet.');
+    var box = el('div'); box.appendChild(el('h2', null, b.title));
+    if (b.note) box.appendChild(el('p', 'muted', b.note));
+    if (b.buses.length) box.appendChild(table(['Bus', 'Status', 'ETA'], b.buses.map(function (x) { return tr([x.name, x.status, x.eta], ''); }), ''));
+    if (b.embed_url) { var f = el('div', 'frame'), i = document.createElement('iframe'); i.src = b.embed_url; i.referrerPolicy = 'strict-origin-when-cross-origin'; i.loading = 'lazy'; f.appendChild(i); f.style.marginTop = '1rem'; box.appendChild(f); }
+    if (b.link_url) { var a = el('a', null, 'Open the live bus tracker'); a.href = b.link_url; a.target = '_blank'; a.rel = 'noopener'; box.appendChild(a); }
+    return box;
+  }
+
   // ── Router ─────────────────────────────────────────────────────────
   var evState = { tab: 'agenda', prog: '', div: '' }, teamState = { sort: 'number', q: '' };
   function render() {
@@ -315,6 +345,7 @@
     else if (page === 'teams') load = get('teams').then(function (l) { return teams(l, teamState); });
     else if (page === 'team' && parts[1]) load = get('teams/' + encodeURIComponent(decodeURIComponent(parts[1]))).then(team);
     else if (page === 'live') load = get('livestreams').then(live);
+    else if (page === 'bus') load = get('overview').then(bus);
     else if (page === 'map') load = Promise.all([get('overview'), get('teams')]).then(function (r) { return mapView(r[0], r[1]); });
     else load = Promise.resolve(el('div', 'empty', 'Page not found.'));
     var token = render.token = (render.token || 0) + 1;

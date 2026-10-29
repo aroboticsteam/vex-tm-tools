@@ -50,6 +50,15 @@ def processed_video_key(team_number: str) -> str:
     return f"teams/{team_number}/video/processed.webm"
 
 
+def team_logo_key(team_number: str, ext: str) -> str:
+    return f"teams/{team_number}/logo.{ext.lstrip('.').lower()}"
+
+
+def site_image_key(name: str) -> str:
+    """Images uploaded for the public site (event map, sponsor logos)."""
+    return f"site/images/{name}"
+
+
 CLIP_KINDS = ("bot", "team")
 
 

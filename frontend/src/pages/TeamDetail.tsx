@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
-import { useTeam, useUpdateTeam } from '../api/teams';
+import { useDeleteTeamLogo, useTeam, useUpdateTeam, useUploadTeamLogo } from '../api/teams';
+import { useUiStore } from '../stores/ui';
 import { usePermission } from '../hooks/usePermission';
 import { PageHeader, Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -16,10 +17,17 @@ export function TeamDetailPage() {
 
   const [pitLocation, setPitLocation] = useState('');
   const [extraNotes, setExtraNotes] = useState('');
+  const [websiteUrl, setWebsiteUrl] = useState('');
+  const uploadLogo = useUploadTeamLogo();
+  const deleteLogo = useDeleteTeamLogo();
+  const pushToast = useUiStore((s) => s.pushToast);
+  const logoInput = useRef<HTMLInputElement>(null);
+  const websiteOk = websiteUrl.trim() === '' || /^https?:\/\/\S+$/i.test(websiteUrl.trim());
 
   useEffect(() => {
     setPitLocation(team?.pit_location ?? '');
     setExtraNotes(team?.extra_notes ?? '');
+    setWebsiteUrl(team?.website_url ?? '');
   }, [team]);
 
   if (!number) return null;
@@ -45,13 +53,64 @@ export function TeamDetailPage() {
               <Label>Extra Notes</Label>
               <Textarea rows={3} value={extraNotes} onChange={(e) => setExtraNotes(e.target.value)} disabled={!canEdit} />
             </div>
+            <div>
+              <Label>Website (shown on the public team page)</Label>
+              <Input
+                value={websiteUrl}
+                placeholder="https://team.example.com"
+                onChange={(e) => setWebsiteUrl(e.target.value)}
+                disabled={!canEdit}
+                aria-label="Team website"
+              />
+              {!websiteOk && <p className="mt-1 text-xs text-vmd-danger">Must start with http:// or https://</p>}
+            </div>
+            <div>
+              <Label>Logo (public team page)</Label>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-vmd-textMuted">{team?.logo_s3_key ? 'Logo uploaded' : 'No logo'}</span>
+                {canEdit && (
+                  <>
+                    <input
+                      ref={logoInput}
+                      type="file"
+                      accept="image/png,image/jpeg,image/gif,image/webp"
+                      className="hidden"
+                      aria-label="Upload team logo"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = '';
+                        if (!file) return;
+                        uploadLogo.mutate(
+                          { number, file },
+                          {
+                            onSuccess: () => pushToast('Logo uploaded', 'success'),
+                            onError: (err) => pushToast(err instanceof Error ? err.message : 'Upload failed', 'error'),
+                          },
+                        );
+                      }}
+                    />
+                    <Button variant="secondary" type="button" disabled={uploadLogo.isPending} onClick={() => logoInput.current?.click()}>
+                      {team?.logo_s3_key ? 'Replace logo' : 'Upload logo'}
+                    </Button>
+                    {team?.logo_s3_key && (
+                      <Button variant="ghost" type="button" disabled={deleteLogo.isPending} onClick={() => deleteLogo.mutate(number)}>
+                        Remove
+                      </Button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
             {canEdit && (
               <Button
                 variant="primary"
                 onClick={() =>
-                  updateTeam.mutate({ number, body: { pit_location: pitLocation, extra_notes: extraNotes } })
+                  updateTeam.mutate({
+                    number,
+                    body: { pit_location: pitLocation, extra_notes: extraNotes, website_url: websiteUrl.trim() },
+                  })
                 }
-                disabled={updateTeam.isPending}
+                disabled={updateTeam.isPending || !websiteOk}
               >
                 Save
               </Button>

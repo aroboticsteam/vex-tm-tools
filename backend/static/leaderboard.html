@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Leaderboards</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b0d12; --card:#141824; --line:#262c3c; --muted:#8e97ad; --accent:#3b6fe0; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: #eceff4; display: flex; flex-direction: column; overflow: hidden;
+         font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: baseline; gap: 1.5rem; padding: 1rem 2rem .6rem; }
+  header h1 { margin: 0; font-size: clamp(1.6rem, 3.2vw, 3rem); flex: 1; }
+  #prog { font-size: clamp(1.1rem, 2.2vw, 2rem); color: var(--accent); font-weight: 700; }
+  #tabs { display: flex; gap: .5rem; padding: 0 2rem; }
+  #tabs span { padding: .3rem 1rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-size: clamp(.9rem, 1.6vw, 1.4rem); }
+  #tabs span.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #bar { height: 6px; background: var(--line); margin: .8rem 2rem 0; border-radius: 3px; overflow: hidden; }
+  #bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s linear; }
+  main { flex: 1; padding: 1rem 2rem 2rem; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: clamp(1rem, 2.2vw, 2rem); }
+  th, td { padding: .35em .7em; text-align: left; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: .7em; text-transform: uppercase; letter-spacing: .05em; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  td.rank { width: 3.5em; font-weight: 800; color: #fff; }
+  tr:nth-child(1) td.rank { color: #ffd166; } tr:nth-child(2) td.rank { color: #cfd5e4; } tr:nth-child(3) td.rank { color: #e29a5d; }
+  .name { color: var(--muted); font-size: .8em; margin-left: .6em; }
+  .empty { color: var(--muted); font-size: 1.6rem; text-align: center; margin-top: 4rem; }
+  main.fade { animation: fade .5s ease; } @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+</style>
+</head>
+<body>
+<header><h1 id="title">Leaderboards</h1><div id="prog"></div></header>
+<div id="tabs"></div>
+<div id="bar"><i id="fill"></i></div>
+<main id="view"><div class="empty">Loading…</div></main>
+<script>
+(function () {
+  var PANELS = [['overall', 'Overall'], ['tournament', 'Tournament'], ['skills', 'Skills'], ['awards', 'Awards']];
+  var q = new URLSearchParams(location.search);
+  function numParam(name) { var v = parseFloat(q.get(name)); return v > 0 ? v : null; }
+  var data = null, shown = '';
+  var view = document.getElementById('view'), tabs = document.getElementById('tabs'), fill = document.getElementById('fill');
+
+  function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined && text !== null) n.textContent = text; return n; }
+  function num(v, d) { return v === null || v === undefined ? '–' : (d !== undefined && typeof v === 'number' ? v.toFixed(d) : v); }
+
+  // The rotation is a pure function of the wall clock, so several screens
+  // stay in step and a reload doesn't restart the cycle.
+  function schedule(now, groups, panelSeconds, programmeSeconds) {
+    var span = groups.length > 1 ? programmeSeconds : panelSeconds * PANELS.length;
+    var inSpan = now % span;
+    var group = groups.length > 1 ? Math.floor(now / programmeSeconds) % groups.length : 0;
+    var panel = Math.floor(inSpan / panelSeconds) % PANELS.length;
+    return { group: group, panel: panel, progress: (inSpan % panelSeconds) / panelSeconds };
+  }
+  window.__schedule = schedule;
+
+  function teamCell(r) { var td = el('td'); td.appendChild(document.createTextNode(r.team)); if (r.team_name) td.appendChild(el('span', 'name', r.team_name)); return td; }
+  function row(cells) { var tr = el('tr'); cells.forEach(function (c) { tr.appendChild(c); }); return tr; }
+  function cell(v, cls) { return el('td', cls, v === null || v === undefined ? '–' : String(v)); }
+  function render(group, panelKey) {
+    var rows = group[panelKey] || [], t = el('table'), head = el('tr'), body = el('tbody');
+    var defs = {
+      overall: [['Rank', 'rank', function (r) { return cell(r.rank, 'rank'); }], ['Team', '', teamCell], ['Qual', 'n', function (r) { return cell(r.qual_rank, 'n'); }], ['Skills', 'n', function (r) { return cell(r.skills_rank, 'n'); }], ['Score', 'n', function (r) { return cell(r.score, 'n'); }]],
+      tournament: [['Rank', 'rank', function (r) { return cell(r.rank, 'rank'); }], ['Team', '', teamCell], ['W-L-T', 'n', function (r) { return cell(num(r.wins) + '-' + num(r.losses) + '-' + num(r.ties), 'n'); }], ['Avg', 'n', function (r) { return cell(num(r.avg_points, 1), 'n'); }]],
+      skills: [['Rank', 'rank', function (r) { return cell(r.rank, 'rank'); }], ['Team', '', teamCell], ['Total', 'n', function (r) { return cell(num(r.total), 'n'); }], ['Driver', 'n', function (r) { return cell(num(r.driver), 'n'); }], ['Prog', 'n', function (r) { return cell(num(r.prog), 'n'); }]],
+      awards: [['#', 'rank', function (r) { return cell(r.rank, 'rank'); }], ['Team', '', teamCell], ['Awards', 'n', function (r) { return cell(r.count, 'n'); }], ['Latest', '', function (r) { return cell(r.latest); }]]
+    }[panelKey];
+    defs.forEach(function (d) { head.appendChild(el('th', d[1] === 'n' ? 'n' : '', d[0])); });
+    var th = el('thead'); th.appendChild(head); t.appendChild(th);
+    rows.forEach(function (r) { body.appendChild(row(defs.map(function (d) { return d[2](r); }))); });
+    t.appendChild(body);
+    return rows.length ? t : el('div', 'empty', 'Nothing to show yet.');
+  }
+
+  function tick() {
+    if (!data || !data.groups.length) return;
+    var panelSeconds = numParam('panel') || data.panel_seconds, programmeSeconds = numParam('programme') || data.programme_seconds;
+    var now = Date.now() / 1000 + (data.offset || 0);
+    var s = schedule(now, data.groups, panelSeconds, programmeSeconds), group = data.groups[s.group], key = PANELS[s.panel][0];
+    fill.style.width = Math.round(s.progress * 100) + '%';
+    var id = s.group + ':' + key + ':' + data.stamp;
+    if (id === shown) return;
+    shown = id;
+    document.getElementById('prog').textContent = data.groups.length > 1 || group.programme ? group.label : '';
+    tabs.replaceChildren();
+    PANELS.forEach(function (p, i) { tabs.appendChild(el('span', i === s.panel ? 'on' : '', p[1])); });
+    view.replaceChildren(render(group, key));
+    view.classList.remove('fade'); void view.offsetWidth; view.classList.add('fade');
+  }
+
+  function load() {
+    var limit = numParam('limit');
+    fetch('/api/v1/public/site/leaderboards' + (limit ? '?limit=' + limit : '')).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) { d.offset = d.server_time - Date.now() / 1000; d.stamp = Date.now(); data = d; shown = ''; tick(); })
+      .catch(function () { if (!data) view.replaceChildren(el('div', 'empty', 'Could not load the leaderboards. Retrying…')); });
+  }
+  fetch('/api/v1/public/site/overview').then(function (r) { return r.json(); }).then(function (o) { document.title = o.title + ' – Leaderboards'; document.getElementById('title').textContent = o.title; }).catch(function () {});
+  load();
+  setInterval(load, 30000);
+  setInterval(tick, 250);
+})();
+</script>
+</body>
+</html>
