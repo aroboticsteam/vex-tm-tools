@@ -136,7 +136,7 @@ async def test_overview_with_and_without_config(client):
     o = (await client.get("/api/v1/public/site/overview")).json()
     assert o["title"] == "QE Battle" and o["event"] == "QE Battle"
     assert o["stats"] == {"teams": 3, "matches_played": 1, "matches_total": 2, "awards": 1}
-    assert o["next_competition"]["name"] == "Nationals" and o["sponsors"] == [{"name": "Kingston"}]
+    assert o["next_competition"]["name"] == "Nationals" and o["sponsors"] == [{"name": "Kingston", "url": None, "logo_url": None}]
     assert o["map"]["rooms"][0]["name"] == "M9" and o["presented_by"] == "Kingston"
 
 

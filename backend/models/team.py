@@ -34,6 +34,9 @@ class TeamProfile(Base):
     video_processing_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
     cached_stats: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     extra_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Public team page extras (issue #28), edited by staff.
+    website_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    logo_s3_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now()
     )

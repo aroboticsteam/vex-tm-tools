@@ -57,6 +57,7 @@ from backend.routers.notifications import router as notifications_router
 from backend.routers.overlays import router as overlays_router
 from backend.routers.public_pages import router as public_pages_router
 from backend.routers.public_site import router as public_site_router
+from backend.routers.site_admin import router as site_admin_router
 from backend.routers.rooms import router as rooms_router
 from backend.routers.scripts import router as scripts_router
 from backend.routers.settings import router as settings_router
@@ -327,6 +328,7 @@ def create_app() -> FastAPI:
     app.include_router(team_clips_router)
     app.include_router(rooms_router)
     app.include_router(public_site_router)
+    app.include_router(site_admin_router)
     app.include_router(button_pages_router)
     app.include_router(comms_router)
     app.include_router(notifications_router)

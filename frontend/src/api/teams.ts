@@ -84,3 +84,30 @@ export function useBatchVideoUrls(teamNumbers: string[]) {
     enabled: teamNumbers.length > 0,
   });
 }
+
+export function useUploadTeamLogo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ number, file }: { number: string; file: File }) => {
+      const form = new FormData();
+      form.set('file', file);
+      return apiFetch<TeamProfile>(`/api/v1/teams/${encodeURIComponent(number)}/logo`, { method: 'POST', formData: form });
+    },
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ['teams'] });
+      qc.invalidateQueries({ queryKey: ['teams', vars.number] });
+    },
+  });
+}
+
+export function useDeleteTeamLogo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (number: string) =>
+      apiFetch<TeamProfile>(`/api/v1/teams/${encodeURIComponent(number)}/logo`, { method: 'DELETE' }),
+    onSuccess: (_d, number) => {
+      qc.invalidateQueries({ queryKey: ['teams'] });
+      qc.invalidateQueries({ queryKey: ['teams', number] });
+    },
+  });
+}

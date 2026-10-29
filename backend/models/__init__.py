@@ -15,6 +15,7 @@ from backend.models.room import Room, RoomTeam  # noqa: F401
 from backend.models.settings import ApiKey, RolePermission, SystemSetting  # noqa: F401
 from backend.models.button_page import Button, ButtonPage  # noqa: F401
 from backend.models.comms import AgendaItem, CommsPreset, Station, StationMessage  # noqa: F401
+from backend.models.match_recording import MatchRecording  # noqa: F401
 from backend.models.team import TeamProfile  # noqa: F401
 from backend.models.team_clip import TeamClip  # noqa: F401
 from backend.models.timer import PrompterCue, TimerInstance  # noqa: F401

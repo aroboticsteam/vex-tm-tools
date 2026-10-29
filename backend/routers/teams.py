@@ -37,6 +37,7 @@ from backend.core.audit import log_action
 from backend.core.dependencies import CurrentPrincipal, get_db, require_permission
 from backend.core.exceptions import ProcessingError
 from backend.models.team import TeamProfile
+from backend.modules.media import images as site_images
 from backend.modules.media import s3
 from backend.modules.media.processor import process_video
 from backend.schemas.team import (
@@ -144,10 +145,63 @@ async def update_team(
     if body.extra_notes is not None:
         team.extra_notes = body.extra_notes
         changed_fields["extra_notes"] = body.extra_notes
+    if body.website_url is not None:
+        team.website_url = body.website_url or None
+        changed_fields["website_url"] = team.website_url
 
     await db.commit()
     await db.refresh(team)
     await log_action(db, principal.subject, "update", "team", number, changes=changed_fields)
+    return team
+
+
+@router.post("/{number}/logo", response_model=TeamProfileRead)
+async def upload_team_logo(
+    number: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    principal: Annotated[CurrentPrincipal, Depends(require_permission("teams:edit"))],
+    file: UploadFile = File(...),
+) -> TeamProfile:
+    """Public-page logo (PNG/JPEG/GIF/WebP, max 4 MB, content-checked)."""
+    team = await db.get(TeamProfile, number)
+    if team is None:
+        raise HTTPException(status_code=404, detail=f"Team {number!r} not found")
+    data, ext = await site_images.read_validated_image(file)
+    key = s3.team_logo_key(number, ext)
+    try:
+        await site_images.store_image(data, key)
+    except ProcessingError as exc:
+        raise HTTPException(status_code=502, detail=_sanitize_processing_error(exc)) from exc
+    if team.logo_s3_key and team.logo_s3_key != key:
+        try:
+            await s3.delete_object(team.logo_s3_key)
+        except Exception:
+            logger.warning("Could not delete previous logo %s", team.logo_s3_key, exc_info=True)
+    team.logo_s3_key = key
+    await db.commit()
+    await db.refresh(team)
+    await log_action(db, principal.subject, "upload", "team_logo", number, changes={"key": key})
+    return team
+
+
+@router.delete("/{number}/logo", response_model=TeamProfileRead)
+async def delete_team_logo(
+    number: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    principal: Annotated[CurrentPrincipal, Depends(require_permission("teams:edit"))],
+) -> TeamProfile:
+    team = await db.get(TeamProfile, number)
+    if team is None:
+        raise HTTPException(status_code=404, detail=f"Team {number!r} not found")
+    if team.logo_s3_key:
+        try:
+            await s3.delete_object(team.logo_s3_key)
+        except Exception:
+            logger.warning("Could not delete logo %s", team.logo_s3_key, exc_info=True)
+        team.logo_s3_key = None
+        await db.commit()
+        await db.refresh(team)
+        await log_action(db, principal.subject, "delete", "team_logo", number)
     return team
 
 
