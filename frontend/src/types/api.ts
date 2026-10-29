@@ -466,3 +466,20 @@ export interface PressResult {
   failed_action_index: number | null;
   actions_executed: number;
 }
+
+// ── Recorded team clips (issues #1/#12) ───────────────────────────────
+
+export type ClipKind = 'bot' | 'team';
+
+export interface TeamClipStatus {
+  team_number: string;
+  kind: ClipKind;
+  status: 'NONE' | 'PROCESSING' | 'DONE' | 'FAILED' | string;
+  processed_s3_key: string | null;
+  error: string | null;
+}
+
+export interface TeamClips {
+  team_number: string;
+  clips: Record<ClipKind, TeamClipStatus>;
+}

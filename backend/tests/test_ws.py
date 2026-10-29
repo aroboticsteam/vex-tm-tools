@@ -211,3 +211,32 @@ def test_ws_prompter_accepts_valid_token_once_leader():
                 assert second["type"] == "cues"
     finally:
         asyncio.run(_delete_timer_instance(entity_id))
+
+
+async def test_overlay_show_team_event_is_forwarded_to_overlay_clients():
+    from backend.routers.ws import ConnectionManager
+
+    class FakeWs:
+        def __init__(self):
+            self.sent = []
+
+        async def accept(self):
+            pass
+
+        async def send_json(self, message):
+            self.sent.append(message)
+
+    manager = ConnectionManager(redis=object())
+    overlay, other = FakeWs(), FakeWs()
+    await manager.connect("overlay.f1", overlay)
+    await manager.connect("overlay.f2", other)
+
+    await manager._dispatch(
+        {"entity_id": "overlay.f1", "type": "overlay_show_team", "timestamp": 1.0, "payload": {"team": "1234A"}}
+    )
+    show = [m for m in overlay.sent if m.get("type") == "show_team"]
+    assert show and show[0]["payload"] == {"team": "1234A"}
+    assert not [m for m in other.sent if m.get("type") == "show_team"]
+
+    await manager._dispatch({"entity_id": "overlay.f1", "type": "overlay_show_team", "payload": {"team": 5}})
+    assert [m for m in overlay.sent if m.get("type") == "show_team"][-1]["payload"] == {"team": None}

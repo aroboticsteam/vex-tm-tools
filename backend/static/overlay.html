@@ -27,116 +27,46 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>TMTools Overlay</title>
 <style>
-  /* Appendix A.6: "no background or logo when no match is queued" — the
-     page itself must be fully transparent so OBS composites straight
-     through to the underlying stream layers. */
-  html, body {
-    margin: 0;
-    padding: 0;
-    width: 1920px;
-    height: 1080px;
-    background: transparent;
-    overflow: hidden;
-    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
-  }
-
-  #stage {
-    position: relative;
-    width: 1920px;
-    height: 1080px;
-    background: transparent;
-  }
-
-  /* ── Grid layouts (Appendix A.4) ──────────────────────────────────────
-     VEX V5 (4 teams): 2x2 grid, red alliance (first 2 teams) on the LEFT,
-     blue alliance (last 2 teams) on the RIGHT, colour-coded borders.
-     VEX IQ (2 teams): 2x1 side-by-side, no alliance colour coding. */
-  #grid {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    gap: 24px;
-    padding: 48px;
-    opacity: 0;
-    transition: opacity 500ms ease;
-    /* No pointer interaction — this is a passive video overlay. */
-    pointer-events: none;
-  }
+  /* Fully transparent page: OBS composites straight through (Appendix A.6).
+     No background panels or borders — only the clips and the info boxes. */
+  html, body { margin: 0; padding: 0; width: 1920px; height: 1080px; background: transparent; overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; color: #fff; }
+  #stage { position: relative; width: 1920px; height: 1080px; background: transparent; }
+  #grid { position: absolute; inset: 0; opacity: 0; transition: opacity 500ms ease; pointer-events: none; }
   #grid.visible { opacity: 1; }
 
-  /* Programme-specific grid-template-* is set via a JS-toggled class
-     rather than inline styles, so the 500ms fade transition above applies
-     uniformly regardless of layout. */
-  #grid.programme-v5 {
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr 1fr;
-  }
-  #grid.programme-iq {
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr;
-  }
+  /* Clip areas: the clip keeps its own (square-ish) ratio, never cropped. */
+  .clip { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; }
+  .clip video { max-width: 100%; max-height: 100%; width: auto; height: 100%; aspect-ratio: 1 / 1; object-fit: contain; background: transparent; }
+  .clip .placeholder { font-size: 64px; font-weight: 700; letter-spacing: 0.06em; color: rgba(255,255,255,0.35); text-shadow: 0 2px 8px rgba(0,0,0,.6); }
 
-  .team-cell {
-    position: relative;
-    border-radius: 20px;
-    overflow: hidden;
-    background: rgba(0, 0, 0, 0.35);
-    border: 6px solid rgba(255, 255, 255, 0.25);
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-  }
-  .team-cell.alliance-red { border-color: #e63946; }
-  .team-cell.alliance-blue { border-color: #457bff; }
+  /* Info boxes */
+  .info { box-sizing: border-box; border-radius: 18px; padding: 18px 24px; display: flex; gap: 18px; align-items: center; background: rgba(32, 76, 190, 0.92); }
+  .info.red { background: rgba(200, 40, 52, 0.92); }
+  .info.blue { background: rgba(32, 76, 190, 0.92); }
+  .rank { flex: none; min-width: 52px; padding: 6px 10px; text-align: center; font-size: 30px; font-weight: 800; border-radius: 10px; background: rgba(0,0,0,0.35); }
+  .rank:empty { display: none; }
+  .info .text { min-width: 0; }
+  .info .number { font-size: 44px; font-weight: 800; line-height: 1.05; letter-spacing: 0.03em; }
+  .info .name { font-size: 28px; font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .info .meta { font-size: 22px; line-height: 1.25; color: rgba(255,255,255,0.88); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .info.compact .number { font-size: 38px; } .info.compact .name { font-size: 24px; }
 
-  .team-cell video,
-  .team-cell .placeholder {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
+  /* IQ: bots in the top two quarters, info boxes in the bottom two. */
+  #grid.mode-iq { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 3fr 2fr; gap: 24px 48px; padding: 36px 48px; }
+  #grid.mode-iq .info { align-self: start; }
 
-  .team-cell .placeholder {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(20, 20, 20, 0.55);
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 28px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
+  /* VRC: one bot per quarter with its info box beside it (red/blue alliance boxes). */
+  #grid.mode-vrc { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 24px 48px; padding: 36px 48px; }
+  .quarter { display: flex; align-items: center; gap: 20px; min-width: 0; min-height: 0; }
+  .quarter .clip { flex: none; height: 100%; aspect-ratio: 1 / 1; }
+  .quarter .info { flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 8px; }
 
-  .team-label {
-    position: relative;
-    z-index: 1;
-    width: 100%;
-    padding: 18px 20px;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0) 100%);
-    color: #ffffff;
-    text-align: center;
-    box-sizing: border-box;
-  }
-
-  .team-label .team-name {
-    display: block;
-    font-size: 34px;
-    font-weight: 700;
-    line-height: 1.2;
-    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
-  }
-
-  .team-label .team-number {
-    display: block;
-    margin-top: 4px;
-    font-size: 24px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    color: rgba(255, 255, 255, 0.85);
-    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
-  }
+  /* Finals spotlight: robot 360 + info on the left half, team clip on the right half. */
+  #grid.mode-finals { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; padding: 36px 48px; }
+  #grid.mode-finals .left { display: flex; flex-direction: column; gap: 24px; min-height: 0; }
+  #grid.mode-finals .left .clip { flex: 1; }
+  #grid.mode-finals .right .clip { height: 100%; }
 </style>
 </head>
 <body>
@@ -148,14 +78,7 @@
 (function () {
   "use strict";
 
-  // ── Server-injected config (plan Appendix B.3) ──────────────────────
-  // Same pattern as prompter.html: the backend route serving this file at
-  // GET /overlay/{entity_id} JSON-encodes and substitutes this placeholder.
-  // Falling back to reading it from the URL keeps this page directly
-  // openable during development without a templating server.
-  var CONFIG = {
-    entityId: "__ENTITY_ID__"
-  };
+  var CONFIG = { entityId: "__ENTITY_ID__" };
 
   function fallbackFromUrl() {
     var path = window.location.pathname.split("/").filter(Boolean);
@@ -166,162 +89,171 @@
   }
   fallbackFromUrl();
 
+  var query = new URLSearchParams(window.location.search);
   var gridEl = document.getElementById("grid");
+  var lastMatch = null;     // last upcoming_match payload (so spotlight can return to it)
+  var spotlightTeam = null; // team number being featured (finals mode), or null
 
-  //: Default per-cell label template (Appendix A.6). Per-overlay-instance
-  // configurability is out of scope for this pass (`overlay_instances` has
-  // no label-template column yet) — see the audit report's follow-up note.
-  function renderLabelTemplate(team) {
-    var name = (team && (team.team_name || team.name)) || "";
-    var number = (team && (team.team_number || team.number)) || "";
-    return { name: name, number: number };
+  // ── Flags (UK / Turkey, per issue #12; others show no flag) ───────────
+  var UK_NAMES = ["united kingdom", "uk", "u.k.", "great britain", "gb", "england", "scotland", "wales", "northern ireland"];
+  var TR_NAMES = ["turkey", "türkiye", "turkiye"];
+  function flagFor(country) {
+    var c = String(country || "").trim().toLowerCase();
+    if (UK_NAMES.indexOf(c) !== -1) return "🇬🇧";
+    if (TR_NAMES.indexOf(c) !== -1) return "🇹🇷";
+    return "";
   }
 
-  // Accepts either a bare team-number string (legacy/unenriched shape) or
-  // the enriched `{team_number, team_name, robot_name, rank, awards}`
-  // object shape (plan §5.10/§7 — the same contract `ws.py`'s
-  // `_dispatch_upcoming_match` enriches `redTeams`/`blueTeams` with).
-  function normalizeTeam(team, videoUrlsByNumber) {
+  function teamNumberOf(t) {
+    return (typeof t === "string") ? t : (t && (t.team_number || t.number)) || "";
+  }
+
+  // Merges the match payload's team entry (string or enriched object) with
+  // the public overlay feed's display info + clip URLs.
+  function normalizeTeam(team, feed) {
     var obj = (typeof team === "string") ? { team_number: team } : (team || {});
     var number = obj.team_number || obj.number || "";
-    var videoUrl = videoUrlsByNumber ? videoUrlsByNumber[number] : null;
+    var info = (feed && feed[number]) || {};
     return {
       team_number: number,
-      team_name: obj.team_name || obj.name || null,
-      video_url: videoUrl || obj.video_url || null
+      team_name: info.team_name || obj.team_name || obj.name || null,
+      organisation: info.organisation || null,
+      location: info.location || null,
+      country: info.country || null,
+      rank: (info.qual_rank != null ? info.qual_rank : obj.rank) || null,
+      bot_url: info.bot_url || obj.video_url || null,
+      team_url: info.team_url || null
     };
   }
 
-  function buildCell(team, allianceClass) {
-    var cell = document.createElement("div");
-    cell.className = "team-cell" + (allianceClass ? " " + allianceClass : "");
-
-    if (team.video_url) {
-      var video = document.createElement("video");
-      video.src = team.video_url;
-      video.autoplay = true;
-      video.loop = true;
-      video.muted = true;
-      video.playsInline = true;
-      cell.appendChild(video);
-    } else {
-      var placeholder = document.createElement("div");
-      placeholder.className = "placeholder";
-      placeholder.textContent = team.team_number || "";
-      cell.appendChild(placeholder);
-    }
-
-    var label = renderLabelTemplate(team);
-    var labelEl = document.createElement("div");
-    labelEl.className = "team-label";
-
-    var nameEl = document.createElement("span");
-    nameEl.className = "team-name";
-    nameEl.textContent = label.name;
-
-    var numberEl = document.createElement("span");
-    numberEl.className = "team-number";
-    numberEl.textContent = label.number;
-
-    labelEl.appendChild(nameEl);
-    labelEl.appendChild(numberEl);
-    cell.appendChild(labelEl);
-
-    return cell;
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null && text !== "") e.textContent = text;
+    return e;
   }
 
-  // ── Video pre-buffering (plan §5.14 step 3/4) ──────────────────────────
-  // Requests presigned URLs for every team in the match from the existing
-  // `GET /api/v1/teams/batch/videos` endpoint (teams.py) before rendering,
-  // so cells that DO have a processed video render it immediately rather
-  // than flashing a placeholder first. No auth header is sent — this page
-  // has none per Appendix A.1 — so this only works against a deployment
-  // where that endpoint's `teams:read` permission is satisfied by an
-  // unauthenticated/public reader; if not, video cells gracefully fall
-  // back to the placeholder box below (never throws).
-  function fetchVideoUrls(teamNumbers) {
+  function buildClip(url, fallbackText) {
+    var box = el("div", "clip");
+    if (url) {
+      var v = document.createElement("video");
+      v.src = url; v.autoplay = true; v.loop = true; v.muted = true; v.playsInline = true;
+      box.appendChild(v);
+    } else if (fallbackText) {
+      box.appendChild(el("div", "placeholder", fallbackText));
+    }
+    return box;
+  }
+
+  function buildInfo(team, color, opts) {
+    opts = opts || {};
+    var box = el("div", "info " + (color || "blue") + (opts.compact ? " compact" : ""));
+    box.appendChild(el("div", "rank", team.rank != null ? String(team.rank) : ""));
+    var text = el("div", "text");
+    text.appendChild(el("div", "number", team.team_number));
+    if (team.team_name) text.appendChild(el("div", "name", team.team_name));
+    if (!opts.minimal) {
+      if (team.organisation) text.appendChild(el("div", "meta", team.organisation));
+      var loc = [flagFor(team.country), team.location].filter(Boolean).join(" ");
+      if (loc) text.appendChild(el("div", "meta", loc));
+    }
+    box.appendChild(text);
+    return box;
+  }
+
+  function fetchFeed(teamNumbers) {
     if (!teamNumbers.length) return Promise.resolve({});
     var qs = encodeURIComponent(teamNumbers.join(","));
-    return fetch("/api/v1/teams/batch/videos?teams=" + qs, { credentials: "same-origin" })
-      .then(function (resp) {
-        if (!resp.ok) throw new Error("batch/videos " + resp.status);
-        return resp.json();
-      })
-      .then(function (data) {
-        return (data && data.videos) || {};
-      })
-      .catch(function () {
-        // No video pipeline reachable (auth, network, or none configured
-        // yet) — every cell below falls back to its placeholder box.
-        return {};
-      });
+    return fetch("/api/v1/public/overlay/teams?teams=" + qs, { credentials: "same-origin" })
+      .then(function (resp) { if (!resp.ok) throw new Error("overlay feed " + resp.status); return resp.json(); })
+      .then(function (data) { return (data && data.teams) || {}; })
+      .catch(function () { return {}; }); // no feed -> placeholders, never throws
   }
 
   var fadeTimer = null;
-
   function clearGrid() {
-    // Appendix A.6: fade OUT (500ms) when the match is cleared, then leave
-    // the page fully empty — no placeholder, no logo, fully transparent.
     gridEl.classList.remove("visible");
     if (fadeTimer) window.clearTimeout(fadeTimer);
-    fadeTimer = window.setTimeout(function () {
-      gridEl.innerHTML = "";
-      gridEl.className = "";
-    }, 500);
+    fadeTimer = window.setTimeout(function () { gridEl.innerHTML = ""; gridEl.className = ""; }, 500);
+  }
+
+  function show(modeClass, build) {
+    if (fadeTimer) { window.clearTimeout(fadeTimer); fadeTimer = null; }
+    gridEl.innerHTML = "";
+    gridEl.classList.remove("visible");
+    gridEl.className = modeClass;
+    build(gridEl);
+    // eslint-disable-next-line no-unused-expressions
+    gridEl.offsetHeight;
+    gridEl.classList.add("visible");
+  }
+
+  // IQ: [bot A][bot B] on top, [info A][info B] below (both blue).
+  function layoutIq(teams) {
+    show("mode-iq", function (g) {
+      teams.forEach(function (t) { g.appendChild(buildClip(t.bot_url, t.team_number)); });
+      teams.forEach(function (t) { g.appendChild(buildInfo(t, "blue")); });
+    });
+  }
+
+  // VRC: red alliance on the top row, blue on the bottom; a bot + info box per quarter.
+  function layoutVrc(red, blue) {
+    show("mode-vrc", function (g) {
+      red.concat(blue).forEach(function (t, i) {
+        var q = el("div", "quarter");
+        q.appendChild(buildClip(t.bot_url, t.team_number));
+        q.appendChild(buildInfo(t, i < red.length ? "red" : "blue", { compact: true, minimal: true }));
+        g.appendChild(q);
+      });
+    });
+  }
+
+  // Finals spotlight: robot 360 + info (left half), team clip (right half).
+  function layoutFinals(t) {
+    show("mode-finals", function (g) {
+      var left = el("div", "left");
+      left.appendChild(buildClip(t.bot_url, t.team_number));
+      left.appendChild(buildInfo(t, "blue"));
+      var right = el("div", "right");
+      right.appendChild(buildClip(t.team_url, null));
+      g.appendChild(left);
+      g.appendChild(right);
+    });
+  }
+
+  function renderSpotlight(number) {
+    return fetchFeed([number]).then(function (feed) {
+      if (spotlightTeam !== number) return; // superseded while loading
+      layoutFinals(normalizeTeam(number, feed));
+    });
   }
 
   function renderMatch(payload) {
-    if (!payload) {
-      clearGrid();
-      return;
-    }
+    lastMatch = payload || null;
+    if (spotlightTeam) return Promise.resolve(); // spotlight wins until cleared
+    if (!payload) { clearGrid(); return Promise.resolve(); }
     var redRaw = payload.redTeams || [];
     var blueRaw = payload.blueTeams || [];
-    var allNumbers = redRaw.concat(blueRaw).map(function (t) {
-      return (typeof t === "string") ? t : (t && (t.team_number || t.number)) || "";
-    }).filter(Boolean);
+    var numbers = redRaw.concat(blueRaw).map(teamNumberOf).filter(Boolean);
+    if (!numbers.length) { clearGrid(); return Promise.resolve(); }
 
-    if (!allNumbers.length) {
-      clearGrid();
-      return;
-    }
-
-    fetchVideoUrls(allNumbers).then(function (videoUrlsByNumber) {
-      if (fadeTimer) { window.clearTimeout(fadeTimer); fadeTimer = null; }
-
-      var red = redRaw.map(function (t) { return normalizeTeam(t, videoUrlsByNumber); });
-      var blue = blueRaw.map(function (t) { return normalizeTeam(t, videoUrlsByNumber); });
-      var teamCount = red.length + blue.length;
-
-      // Appendix A.4: programme type auto-detected from team count.
-      // 4 teams -> VEX V5 (2x2, alliance colour-coded). 2 teams -> VEX IQ
-      // (2x1, no alliance colours). Anything else is rendered as an
-      // uncoloured N-up row rather than dropped, in case a future
-      // programme/format sends a different count.
-      gridEl.innerHTML = "";
-      gridEl.classList.remove("visible");
-
-      if (teamCount === 4) {
-        gridEl.className = "programme-v5";
-        red.forEach(function (team) { gridEl.appendChild(buildCell(team, "alliance-red")); });
-        blue.forEach(function (team) { gridEl.appendChild(buildCell(team, "alliance-blue")); });
-      } else if (teamCount === 2) {
-        gridEl.className = "programme-iq";
-        red.concat(blue).forEach(function (team) { gridEl.appendChild(buildCell(team, "")); });
-      } else {
-        gridEl.className = "";
-        gridEl.style.gridTemplateColumns = "repeat(" + teamCount + ", 1fr)";
-        gridEl.style.gridTemplateRows = "1fr";
-        red.concat(blue).forEach(function (team) { gridEl.appendChild(buildCell(team, "")); });
-      }
-
-      // Appendix A.6: fade IN (500ms) when new team cells load for a new
-      // match. Force a reflow before adding the class so the transition
-      // actually runs (the element was just populated this tick).
-      // eslint-disable-next-line no-unused-expressions
-      gridEl.offsetHeight;
-      gridEl.classList.add("visible");
+    return fetchFeed(numbers).then(function (feed) {
+      if (spotlightTeam || lastMatch !== payload) return; // state moved on while fetching
+      var red = redRaw.map(function (t) { return normalizeTeam(t, feed); });
+      var blue = blueRaw.map(function (t) { return normalizeTeam(t, feed); });
+      var forced = query.get("mode");
+      var count = red.length + blue.length;
+      if (forced === "iq" || (forced !== "vrc" && count === 2)) layoutIq(red.concat(blue));
+      else layoutVrc(red, blue);
     });
+  }
+
+  function setSpotlight(number) {
+    spotlightTeam = number ? String(number).toUpperCase() : null;
+    if (spotlightTeam) return renderSpotlight(spotlightTeam);
+    var payload = lastMatch;
+    lastMatch = null;
+    return renderMatch(payload);
   }
 
   // ── WebSocket connection with exponential backoff reconnect ───────────
@@ -378,34 +310,26 @@
     window.setTimeout(connect, delay);
   }
 
-  // Handles an EventBusMessage-shaped WS payload
-  // ({entity_id, entity_tags, type, timestamp, payload}) as pushed by
-  // `ConnectionManager._dispatch_upcoming_match` in ws.py.
   function handleMessage(msg) {
     if (!msg || typeof msg !== "object") return;
-    var type = msg.type;
     var payload = msg.payload || msg;
-
-    switch (type) {
-      case "upcoming_match":
-        renderMatch(payload);
-        break;
-      case "match_cleared":
-        renderMatch(null);
-        break;
-      default:
-        // Unknown/forward-compatible message type — ignore.
-        break;
+    switch (msg.type) {
+      case "upcoming_match": renderMatch(payload); break;
+      case "match_cleared": renderMatch(null); break;
+      case "show_team": setSpotlight(payload && payload.team); break;
+      default: break; // forward-compatible: ignore unknown message types
     }
   }
 
   connect();
+  if (query.get("team")) setSpotlight(query.get("team")); // static spotlight, e.g. for testing in OBS
 
-  // Expose internals for manual/automated testing without a live WS server.
   window.__overlayTestHooks = {
     handleMessage: handleMessage,
     renderMatch: renderMatch,
-    normalizeTeam: normalizeTeam
+    setSpotlight: setSpotlight,
+    normalizeTeam: normalizeTeam,
+    flagFor: flagFor
   };
 })();
 </script>

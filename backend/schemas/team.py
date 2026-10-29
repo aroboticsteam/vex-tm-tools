@@ -53,3 +53,35 @@ class TeamVideoUrl(BaseModel):
 
 class BatchVideoUrlsResponse(BaseModel):
     videos: dict[str, str | None]
+
+
+class TeamClipStatus(BaseModel):
+    team_number: str
+    kind: str
+    status: str = "NONE"
+    processed_s3_key: str | None = None
+    error: str | None = None
+
+
+class TeamClipsRead(BaseModel):
+    team_number: str
+    clips: dict[str, TeamClipStatus]
+
+
+class OverlayTeam(BaseModel):
+    """Display-safe team info for the public overlay endpoint."""
+
+    team_number: str
+    team_name: str | None = None
+    organisation: str | None = None
+    location: str | None = None
+    country: str | None = None
+    qual_rank: int | None = None
+    skills_rank: int | None = None
+    robot_name: str | None = None
+    bot_url: str | None = None
+    team_url: str | None = None
+
+
+class OverlayTeamsResponse(BaseModel):
+    teams: dict[str, OverlayTeam]

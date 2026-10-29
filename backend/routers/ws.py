@@ -186,6 +186,22 @@ class ConnectionManager:
             await self._dispatch_upcoming_match(data)
         elif event_type == "room_notice":
             await self._dispatch_room_notice(data)
+        elif event_type == "overlay_show_team" and entity_id:
+            await self._dispatch_overlay_show_team(entity_id, data)
+
+    async def _dispatch_overlay_show_team(self, entity_id: str, data: dict[str, Any]) -> None:
+        """Operator chose a single team to feature on an overlay (finals
+        "team spotlight" mode); `team: null` returns it to the match view."""
+        team = (data.get("payload") or {}).get("team")
+        await self.broadcast(
+            entity_id,
+            {
+                "entity_id": entity_id,
+                "type": "show_team",
+                "timestamp": data.get("timestamp", time.time()),
+                "payload": {"team": team if isinstance(team, str) and team else None},
+            },
+        )
 
     async def _dispatch_room_notice(self, data: dict[str, Any]) -> None:
         """Forwards a `room_notice` (published by `modules/notifications`) to

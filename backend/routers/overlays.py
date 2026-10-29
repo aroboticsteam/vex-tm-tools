@@ -27,6 +27,7 @@ from backend.schemas.overlay import (
     OverlayInstanceCreate,
     OverlayInstanceRead,
     OverlayInstanceUpdate,
+    ShowTeamRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -132,6 +133,35 @@ async def delete_overlay(
     await db.delete(row)
     await db.commit()
     await _publish_config_change(redis_client, entity_id, "deleted", tags)
+
+
+@router.post(
+    "/{entity_id}/show-team",
+    status_code=204,
+    response_model=None,
+    dependencies=[Depends(require_permission("overlays:edit"))],
+)
+async def show_team(
+    entity_id: str,
+    body: ShowTeamRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    redis_client: Any = Depends(get_redis),
+) -> None:
+    """Finals "team spotlight": tells the overlay to show one team (team clip
+    + robot 360 + info) instead of the match grid; `team: null` reverts."""
+    row = await _get_or_404(db, entity_id)
+    msg = EventBusMessage(
+        entity_id=entity_id,
+        entity_tags=list(row.tags or []),
+        type="overlay_show_team",
+        timestamp=time.time(),
+        payload={"team": body.team.upper() if body.team else None},
+    )
+    try:
+        await redis_client.publish("qecomp:events", msg.model_dump_json())
+    except Exception:
+        logger.exception("Failed to publish overlay_show_team for %s", entity_id)
+        raise HTTPException(status_code=503, detail="Event bus unavailable")
 
 
 async def _find_upcoming_match_for_field_set(
