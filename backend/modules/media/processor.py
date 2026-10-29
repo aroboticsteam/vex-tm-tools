@@ -46,22 +46,31 @@ def _clamp01(name: str, value: float) -> float:
     return float(value)
 
 
+#: Recorded team/bot clips (issue #1/#12) keep their own (usually square)
+#: aspect ratio and frame rate: only downscaled so the height is at most 1080,
+#: never padded to 16:9 (the padding would be opaque black bars on stream).
+_CLIP_SCALE_FILTER = "scale=-2:'min(1080,ih)'"
+CLIP_MAX_SECONDS = 12
+
+
 def _build_ffmpeg_args(
     input_path: str,
     output_path: str,
     key_colour: str,
     similarity: float,
     blend: float,
+    clip: bool = False,
 ) -> list[str]:
     ffmpeg_colour = _hex_to_ffmpeg_colour(key_colour)
     sim = _clamp01("similarity", similarity)
     bl = _clamp01("blend", blend)
 
     vf = (
-        f"{_SCALE_PAD_FILTER},"
+        f"{_CLIP_SCALE_FILTER if clip else _SCALE_PAD_FILTER},"
         f"colorkey={ffmpeg_colour}:{sim}:{bl},"
         "format=yuva420p"
     )
+    duration_args = ["-t", str(CLIP_MAX_SECONDS)] if clip else []
 
     # -y: overwrite output non-interactively (subprocess has no stdin to
     # answer FFmpeg's "overwrite? y/N" prompt).
@@ -78,6 +87,7 @@ def _build_ffmpeg_args(
         "yuva420p",
         "-auto-alt-ref",
         "0",
+        *duration_args,
         output_path,
     ]
 
@@ -108,6 +118,7 @@ async def process_video(
     key_colour: str,
     similarity: float,
     blend: float,
+    clip: bool = False,
 ) -> None:
     """Run the FFmpeg green-screen keying pipeline, then re-raise on failure
     after firing an Appendix A.8 ntfy notification (see `_process_video` for
@@ -116,7 +127,7 @@ async def process_video(
     `_process_video`'s several `ProcessingError` raise sites individually).
     """
     try:
-        await _process_video(input_path, output_path, key_colour, similarity, blend)
+        await _process_video(input_path, output_path, key_colour, similarity, blend, clip)
     except ProcessingError as exc:
         await send_ntfy_notification("Video processing failed", str(exc), priority="high")
         raise
@@ -128,6 +139,7 @@ async def _process_video(
     key_colour: str,
     similarity: float,
     blend: float,
+    clip: bool = False,
 ) -> None:
     """Run the FFmpeg green-screen keying pipeline on `input_path`, writing a
     transparent VP9/webm to `output_path`.
@@ -149,7 +161,7 @@ async def _process_video(
     out_path = Path(output_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    args = _build_ffmpeg_args(str(in_path), str(out_path), key_colour, similarity, blend)
+    args = _build_ffmpeg_args(str(in_path), str(out_path), key_colour, similarity, blend, clip)
     logger.info("Running ffmpeg: %s", " ".join(args))
 
     try:

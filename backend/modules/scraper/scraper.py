@@ -634,6 +634,7 @@ class Scraper:
             # `team_profiles` has no dedicated organisation/location columns
             # (plan §8's DDL only defines bio/robot_name/etc.) — kept in the
             # flexible cached_stats JSONB rather than silently discarded.
+            "team_name": team_row.get("teamName") or team_row.get("team_name") or team_row.get("name"),
             "organisation": team_row.get("organization") or team_row.get("organisation"),
             "location": team_row.get("location"),
         }

@@ -215,3 +215,13 @@ or open `/docs` for the full interactive Swagger UI.
 | POST | `/api/v1/button-pages/{page_id}/buttons` | Create a button; `action_yaml` uses the script/automation action format (`buttons:manage`). |
 | PUT/DELETE | `/api/v1/button-pages/buttons/{button_id}` | Update/delete a button (`buttons:manage`). |
 | POST | `/api/v1/button-pages/buttons/{button_id}/press` | Run the button's actions on the leader's automation engine (`buttons:press`). |
+
+
+## Team clips & overlay feed (issues #1/#12)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/teams/{number}/clips` | Status of the `bot` and `team` clips (`teams:read`). |
+| POST | `/api/v1/teams/{number}/clips/{kind}` | Upload a recorded clip (`kind` = `bot` or `team`; webm/mp4/mov, max 200 MB). Keyed to a transparent WebM, keeping square framing and frame rate, capped at 12 s (`video:upload`). |
+| GET | `/api/v1/public/overlay/teams?teams=A,B` | Unauthenticated, display-safe team info + presigned clip URLs for the OBS overlay (max 12 teams). |
+| POST | `/api/v1/overlays/{entity_id}/show-team` | Finals spotlight: show one team on an overlay; `{"team": null}` returns to the match view (`overlays:edit`). |

@@ -32,3 +32,9 @@ class OverlayInstanceRead(OverlayInstanceBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
+
+
+class ShowTeamRequest(BaseModel):
+    """`team: null` clears the spotlight and returns to the match view."""
+
+    team: str | None = Field(default=None, max_length=20, pattern=r"^[A-Za-z0-9]+$")

@@ -50,6 +50,19 @@ def processed_video_key(team_number: str) -> str:
     return f"teams/{team_number}/video/processed.webm"
 
 
+CLIP_KINDS = ("bot", "team")
+
+
+def clip_raw_key(team_number: str, kind: str, ext: str) -> str:
+    """S3 key for a team's raw recorded clip (`kind` is "bot" or "team")."""
+    return f"teams/{team_number}/clips/{kind}/raw.{ext.lstrip('.').lower()}"
+
+
+def clip_processed_key(team_number: str, kind: str) -> str:
+    """S3 key for a team's processed (chroma-keyed, transparent) clip."""
+    return f"teams/{team_number}/clips/{kind}/processed.webm"
+
+
 class _ResolvedS3Config:
     __slots__ = ("endpoint_url", "public_endpoint_url", "bucket", "access_key", "secret_key", "region")
 

@@ -141,3 +141,35 @@ async def test_preview_returns_no_match_queued_shape(client, cleanup_entities):
 async def test_preview_missing_overlay_returns_404(client):
     resp = await client.get(f"/api/v1/overlays/does-not-exist-{uuid.uuid4().hex}/preview")
     assert resp.status_code == 404
+
+
+async def test_show_team_publishes_event(client, fake_redis, cleanup_entities):
+    entity_id = _unique_entity_id()
+    cleanup_entities.append(entity_id)
+    await client.post("/api/v1/overlays", json={"entity_id": entity_id, "display_name": "O", "field_set_id": 1})
+
+    pubsub = fake_redis.pubsub()
+    await pubsub.subscribe("qecomp:events")
+    await pubsub.get_message(timeout=1)  # subscribe ack
+
+    resp = await client.post(f"/api/v1/overlays/{entity_id}/show-team", json={"team": "1234a"})
+    assert resp.status_code == 204
+    message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1)
+    import json as _json
+
+    body = _json.loads(message["data"])
+    assert body["type"] == "overlay_show_team" and body["entity_id"] == entity_id
+    assert body["payload"] == {"team": "1234A"}
+
+    resp = await client.post(f"/api/v1/overlays/{entity_id}/show-team", json={"team": None})
+    assert resp.status_code == 204
+    cleared = _json.loads((await pubsub.get_message(ignore_subscribe_messages=True, timeout=1))["data"])
+    assert cleared["payload"] == {"team": None}
+
+
+async def test_show_team_validation_and_404(client, cleanup_entities):
+    entity_id = _unique_entity_id()
+    cleanup_entities.append(entity_id)
+    await client.post("/api/v1/overlays", json={"entity_id": entity_id, "display_name": "O", "field_set_id": 1})
+    assert (await client.post(f"/api/v1/overlays/{entity_id}/show-team", json={"team": "bad team!"})).status_code == 422
+    assert (await client.post("/api/v1/overlays/overlay.nope/show-team", json={"team": "1234A"})).status_code == 404

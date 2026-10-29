@@ -130,3 +130,56 @@ async def test_process_video_invalid_similarity_raises(tmp_path):
 
     with pytest.raises(ProcessingError, match="similarity"):
         await process_video(input_path, str(tmp_path / "out.webm"), "#00B140", 1.5, 0.05)
+
+
+def _probe_stream(path: str) -> dict:
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-print_format", "json", "-show_streams", "-show_format", path],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    data = json.loads(probe.stdout)
+    return {**data["streams"][0], "_format": data["format"]}
+
+
+def test_build_ffmpeg_args_clip_mode_does_not_pad_or_force_16_9():
+    args = _build_ffmpeg_args("in.webm", "out.webm", "#00B140", 0.1, 0.05, clip=True)
+    vf = args[args.index("-vf") + 1]
+    assert "pad=" not in vf and "1920" not in vf
+    assert "min(1080,ih)" in vf
+    assert "colorkey=0x00B140:0.1:0.05" in vf
+    assert args[args.index("-t") + 1] == "12"  # duration cap
+    assert "-r" not in args  # frame rate is never forced down
+
+
+@pytest.mark.skipif(not FFMPEG_AVAILABLE, reason="ffmpeg/ffprobe not installed")
+async def test_process_clip_keeps_square_framing_and_60fps(tmp_path):
+    input_path = str(tmp_path / "square.mp4")
+    output_path = str(tmp_path / "clip.webm")
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=0x00B140:s=1080x1080:r=60:d=0.5", "-pix_fmt", "yuv420p", input_path],
+        check=True,
+        capture_output=True,
+    )
+    await process_video(input_path, output_path, "#00B140", 0.1, 0.05, clip=True)
+    stream = _probe_stream(output_path)
+    assert (stream["width"], stream["height"]) == (1080, 1080)  # not padded to 16:9
+    num, den = stream["r_frame_rate"].split("/")
+    assert round(int(num) / int(den)) == 60
+    assert stream.get("tags", {}).get("alpha_mode") == "1"
+
+
+@pytest.mark.skipif(not FFMPEG_AVAILABLE, reason="ffmpeg/ffprobe not installed")
+async def test_process_clip_downscales_tall_source_and_caps_duration(tmp_path):
+    input_path = str(tmp_path / "big.mp4")
+    output_path = str(tmp_path / "clip.webm")
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=0x00B140:s=2160x2160:r=30:d=14", "-pix_fmt", "yuv420p", input_path],
+        check=True,
+        capture_output=True,
+    )
+    await process_video(input_path, output_path, "#00B140", 0.1, 0.05, clip=True)
+    stream = _probe_stream(output_path)
+    assert (stream["width"], stream["height"]) == (1080, 1080)
+    assert float(stream["_format"]["duration"]) <= 12.5

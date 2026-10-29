@@ -13,6 +13,7 @@ import { TeamsPage } from './pages/Teams';
 import { TeamDetailPage } from './pages/TeamDetail';
 import { RoomsPage } from './pages/Rooms';
 import { ButtonPagesPage } from './pages/ButtonPages';
+import { RecorderPage } from './pages/Recorder';
 import { AuditLogPage } from './pages/AuditLog';
 import { SettingsPage } from './pages/Settings';
 import { UsersPage } from './pages/Users';
@@ -44,6 +45,7 @@ export const router = createBrowserRouter([
       { path: 'teams/:number', element: <TeamDetailPage /> },
       { path: 'rooms', element: <RoomsPage /> },
       { path: 'buttons', element: <ButtonPagesPage /> },
+      { path: 'record', element: <RecorderPage /> },
       { path: 'audit', element: <AuditLogPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'users', element: <UsersPage /> },
