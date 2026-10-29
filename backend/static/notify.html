@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0f1115" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<title>Match alerts</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0f1115; color: #eceff4; padding: max(1rem, env(safe-area-inset-top)) 1rem 2rem;
+         font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 520px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: .5rem 0 .25rem; }
+  p.muted { color: #9aa3b8; margin: .25rem 0 1rem; }
+  .card { background: #161a23; border: 1px solid #262c3c; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
+  input[type=search] { width: 100%; padding: .7rem; font-size: 1rem; border-radius: 8px; border: 1px solid #333b52; background: #0f1219; color: inherit; }
+  .list { max-height: 45vh; overflow: auto; margin-top: .6rem; border: 1px solid #262c3c; border-radius: 8px; }
+  label.row { display: flex; align-items: center; gap: .75rem; padding: .7rem .8rem; border-bottom: 1px solid #1f2535; font-size: 1.05rem; }
+  label.row:last-child { border-bottom: 0; }
+  label.row input { width: 1.2rem; height: 1.2rem; }
+  button { width: 100%; background: #3b6fe0; color: #fff; border: 0; border-radius: 10px; padding: .9rem; font-size: 1.05rem; cursor: pointer; margin-top: .6rem; }
+  button.secondary { background: #262c3c; }
+  button:disabled { opacity: .5; }
+  .msg { padding: .7rem .9rem; border-radius: 8px; margin-bottom: 1rem; background: #1f2638; border: 1px solid #3a4666; }
+  .msg.err { border-color: #a14a4a; background: #2a1a1a; }
+  .count { color: #9aa3b8; font-size: .9rem; margin-top: .5rem; }
+  [hidden] { display: none !important; }
+</style>
+<link rel="manifest" id="manifest" href="/notify.webmanifest" />
+</head>
+<body>
+<main>
+  <h1 id="title">Match alerts</h1>
+  <p class="muted" id="sub">Pick your team(s) and get a notification before each match and when scores are posted.</p>
+  <div id="msg" class="msg" hidden></div>
+
+  <div id="ios" class="msg" hidden>
+    <b>One more step on iPhone/iPad:</b> tap the Share button, choose <b>Add to Home Screen</b>, then open
+    this page from the new icon to turn notifications on. (iOS only allows alerts for installed web apps.)
+  </div>
+
+  <section id="form" class="card" hidden>
+    <input type="search" id="filter" placeholder="Search teams…" autocomplete="off" />
+    <div class="list" id="teams"></div>
+    <div class="count" id="count"></div>
+    <button id="subscribe" disabled>Turn on notifications</button>
+    <button id="unsubscribe" class="secondary" hidden>Turn off notifications</button>
+  </section>
+</main>
+<script>
+(function () {
+  var params = new URLSearchParams(location.search);
+  var ROOM = params.get('room') || '';
+  var STORE = 'tmtools-notify-' + ROOM;
+  var msgEl = document.getElementById('msg');
+  var room = null, selected = {}, subscribed = false, reg = null;
+
+  if (ROOM) document.getElementById('manifest').href = '/notify.webmanifest?room=' + encodeURIComponent(ROOM);
+
+  function show(text, isErr) {
+    msgEl.textContent = text; msgEl.hidden = !text; msgEl.className = 'msg' + (isErr ? ' err' : '');
+  }
+  async function api(path, body) {
+    var res = await fetch(path, body === undefined ? {} : {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      var detail = res.statusText;
+      try { var j = await res.json(); if (j.detail) detail = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail); } catch (e) {}
+      throw new Error(detail);
+    }
+    return res.status === 204 ? null : res.json();
+  }
+  function b64ToBytes(b64) {
+    var pad = '='.repeat((4 - b64.length % 4) % 4);
+    var raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from(raw, function (c) { return c.charCodeAt(0); });
+  }
+
+  var isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var standalone = window.navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+  var supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+
+  function renderTeams() {
+    var q = document.getElementById('filter').value.trim().toUpperCase();
+    var list = document.getElementById('teams');
+    list.replaceChildren();
+    room.teams.filter(function (t) { return !q || t.indexOf(q) !== -1; }).forEach(function (t) {
+      var row = document.createElement('label'); row.className = 'row';
+      var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!selected[t];
+      cb.addEventListener('change', function () { if (cb.checked) selected[t] = true; else delete selected[t]; updateButtons(); });
+      row.appendChild(cb); row.appendChild(document.createTextNode(t)); list.appendChild(row);
+    });
+  }
+  function updateButtons() {
+    var n = Object.keys(selected).length;
+    document.getElementById('count').textContent = n + ' selected';
+    var btn = document.getElementById('subscribe');
+    btn.disabled = n === 0;
+    btn.textContent = subscribed ? 'Update my teams' : 'Turn on notifications';
+    document.getElementById('unsubscribe').hidden = !subscribed;
+  }
+
+  async function subscribe() {
+    var btn = document.getElementById('subscribe'); btn.disabled = true; show('');
+    try {
+      var perm = await Notification.requestPermission();
+      if (perm !== 'granted') throw new Error('Notifications are blocked. Allow them in your browser/site settings and try again.');
+      var key = (await api('/api/v1/public/push/vapid-key')).public_key;
+      var sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+      var teams = Object.keys(selected);
+      await api('/api/v1/public/push/subscribe', { endpoint: sub.endpoint, keys: sub.toJSON().keys, room: ROOM, teams: teams });
+      subscribed = true;
+      try { localStorage.setItem(STORE, JSON.stringify(teams)); } catch (e) {}
+      show('You\'re all set — alerts on for: ' + teams.join(', '));
+    } catch (e) { show(e.message || String(e), true); }
+    updateButtons();
+  }
+
+  async function unsubscribe() {
+    try {
+      var sub = await reg.pushManager.getSubscription();
+      if (sub) { await api('/api/v1/public/push/unsubscribe', { endpoint: sub.endpoint }); await sub.unsubscribe(); }
+      subscribed = false; selected = {};
+      try { localStorage.removeItem(STORE); } catch (e) {}
+      show('Notifications turned off.'); renderTeams();
+    } catch (e) { show(e.message || String(e), true); }
+    updateButtons();
+  }
+
+  async function init() {
+    if (!ROOM) { show('Scan the QR code on your room\'s display to get started.', true); return; }
+    try { room = await api('/api/v1/public/rooms/' + encodeURIComponent(ROOM)); }
+    catch (e) { show('This room wasn\'t found. Scan the QR code again.', true); return; }
+    document.title = room.name + ' – match alerts';
+    document.getElementById('title').textContent = room.name + ' — match alerts';
+
+    if (isIos && !standalone) document.getElementById('ios').hidden = false;
+    if (!supported) {
+      if (!(isIos && !standalone)) show('This browser can\'t receive notifications. Try Chrome, Safari, Edge or Firefox.', true);
+      return;
+    }
+    document.getElementById('form').hidden = false;
+    try { JSON.parse(localStorage.getItem(STORE) || '[]').forEach(function (t) { selected[t] = true; }); } catch (e) {}
+    renderTeams(); updateButtons();
+
+    try {
+      reg = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+      var existing = await reg.pushManager.getSubscription();
+      if (existing) {
+        var st = await api('/api/v1/public/push/status', { endpoint: existing.endpoint });
+        if (st.subscribed && st.room === ROOM) {
+          subscribed = true; selected = {}; st.teams.forEach(function (t) { selected[t] = true; });
+          renderTeams();
+        }
+      }
+    } catch (e) { show('Could not set up notifications: ' + (e.message || e), true); }
+    updateButtons();
+  }
+
+  document.getElementById('filter').addEventListener('input', renderTeams);
+  document.getElementById('subscribe').addEventListener('click', subscribe);
+  document.getElementById('unsubscribe').addEventListener('click', unsubscribe);
+  init();
+})();
+</script>
+</body>
+</html>

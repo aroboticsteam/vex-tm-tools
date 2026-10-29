@@ -127,6 +127,21 @@ spec:
                 secretKeyRef:
                   name: qecomp-secrets
                   key: S3_SECRET_KEY
+            # Web Push (team/staff notifications). Optional: without them push is
+            # disabled but room displays still receive alerts. Generate with
+            # `python tools/generate_vapid_keys.py`.
+            - name: VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: qecomp-secrets
+                  key: VAPID_PRIVATE_KEY
+                  optional: true
+            - name: VAPID_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: qecomp-secrets
+                  key: VAPID_PUBLIC_KEY
+                  optional: true
           livenessProbe:
             httpGet:
               path: /healthz

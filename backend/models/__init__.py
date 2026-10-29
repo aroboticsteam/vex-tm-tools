@@ -9,7 +9,9 @@ from backend.core.db import Base  # noqa: F401
 from backend.models.audit import AuditLog  # noqa: F401
 from backend.models.automation import Automation, AutomationFolder, AutomationRun, Script  # noqa: F401
 from backend.models.integration import IntegrationInstance, ZerosPreset  # noqa: F401
+from backend.models.notification import NotificationLog, PushSubscription, PushSubscriptionTeam  # noqa: F401
 from backend.models.overlay import OverlayInstance  # noqa: F401
+from backend.models.room import Room, RoomTeam  # noqa: F401
 from backend.models.settings import ApiKey, RolePermission, SystemSetting  # noqa: F401
 from backend.models.team import TeamProfile  # noqa: F401
 from backend.models.timer import PrompterCue, TimerInstance  # noqa: F401
@@ -23,7 +25,12 @@ __all__ = [
     "Script",
     "IntegrationInstance",
     "ZerosPreset",
+    "NotificationLog",
+    "PushSubscription",
+    "PushSubscriptionTeam",
     "OverlayInstance",
+    "Room",
+    "RoomTeam",
     "ApiKey",
     "RolePermission",
     "SystemSetting",

@@ -131,6 +131,44 @@ Team profiles + green-screen video upload pipeline (plan §5.11/§5.13).
 | PUT | `/api/v1/zeros/presets/{preset_id}` | Update a ZerOS preset. |
 | DELETE | `/api/v1/zeros/presets/{preset_id}` | Delete a ZerOS preset. |
 
+## Rooms (`/api/v1/rooms`)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/rooms` | List rooms with their allocated teams (`rooms:read`). |
+| GET | `/api/v1/rooms/{slug}` | One room (`rooms:read`). |
+| POST | `/api/v1/rooms` | Create a room: `slug` (`[a-z0-9-]`), `name`, optional `stream_url` (YouTube links are normalised to `/embed/`), `teams[]` (`rooms:manage`). 409 if the slug exists. |
+| PUT | `/api/v1/rooms/{slug}` | Replace name, stream URL and team list (`rooms:manage`). |
+| DELETE | `/api/v1/rooms/{slug}` | Delete a room (`rooms:manage`); subscriptions made from it keep working but lose their room. |
+
+## Notifications (`/api/v1`)
+
+Team-facing endpoints are **public** (no login) — they are used from phones that scanned a room's QR code. They are rate-limited per client IP, and the push endpoint a client registers must belong to a known browser push service (Google/FCM, Mozilla, Apple, Microsoft).
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/public/rooms/{slug}` | Public room info: name, stream URL, team list (used by the room and subscribe pages). |
+| GET | `/api/v1/public/push/vapid-key` | VAPID public key for `pushManager.subscribe`; 503 if push is not configured. |
+| POST | `/api/v1/public/push/subscribe` | Follow teams: `endpoint`, `keys{p256dh,auth}`, `room`, `teams[]`. Teams must belong to the room. Re-posting the same endpoint replaces its team list. |
+| POST | `/api/v1/public/push/status` | `{endpoint}` → `{subscribed, room, teams}`. |
+| POST | `/api/v1/public/push/unsubscribe` | `{endpoint}` → 204. |
+| POST | `/api/v1/notifications/staff/subscribe` | Register this browser for staff alerts (`notifications:receive`); optional `categories` (`system`, `broadcast`). |
+| POST | `/api/v1/notifications/staff/unsubscribe` | Remove a staff subscription (`notifications:receive`). |
+| POST | `/api/v1/notifications/broadcast` | `{title, message, rooms[]\|null, push, modal}` — to room displays and/or phones; `rooms: null` = every room (`notifications:broadcast`). |
+| POST | `/api/v1/notifications/test` | Push a test message to all staff subscriptions (`notifications:manage`). |
+| GET | `/api/v1/notifications/stats` | Subscription counts, per room (`notifications:manage`). |
+
+Alert behaviour (x matches / y minutes ahead, scores, excluded rounds) is configured in the `notifications` system setting (Settings → Team alerts).
+
+## Public pages
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/room/{slug}` | Room display: livestream embed, team list, QR code, and live alerts over `/ws/room/{slug}`. 404 for an unknown room. |
+| GET | `/room/{slug}/qr.svg` | QR code linking to `/notify?room={slug}` (uses `PUBLIC_BASE_URL`, else the request host). |
+| GET | `/notify?room={slug}` | Phone page: pick teams from the room and turn on notifications. |
+| GET | `/sw.js`, `/notify.webmanifest` | Service worker and PWA manifest (iOS only delivers push to a web app added to the Home Screen). |
+
 ## Prompter
 
 | Method | Path | Description |
@@ -147,6 +185,7 @@ directly.
 |---|---|---|
 | `/ws/events` | session | Raw `qecomp:events` bus fan-out (plan Appendix A.11's "Live Event Bus" debug view). |
 | `/ws/prompter/{entity_id}?token=...` | HMAC token query param (plan Appendix B.8) | Live countdown/cue/`high_potential` stream for one timer-teleprompter instance. The token is validated at WebSocket-upgrade time (constant-time comparison); an invalid/expired token closes the connection. Only the boolean `high_potential` flag from the AI predictor is ever sent — never the underlying predicted scores (see `backend/modules/predictor/predictor.py`'s module docstring). |
+| `/ws/room/{slug}` | none (the room slug is the only credential, like overlay URLs) | Room display feed: only that room's `notice` messages (`{type, id, title, message, modal, duration, timestamp}`). Closes with 4003 for an unknown room. |
 | `/ws/overlay/{entity_id}` | none (plan Appendix A.1: "security by obscurity of the entity_id") | Streams `upcoming_match`-shaped messages for the overlay instance's bound field set. |
 
 ## Notes on generation

@@ -11,6 +11,7 @@ import { TimersPage } from './pages/Timers';
 import { OverlaysPage } from './pages/Overlays';
 import { TeamsPage } from './pages/Teams';
 import { TeamDetailPage } from './pages/TeamDetail';
+import { RoomsPage } from './pages/Rooms';
 import { AuditLogPage } from './pages/AuditLog';
 import { SettingsPage } from './pages/Settings';
 import { UsersPage } from './pages/Users';
@@ -40,6 +41,7 @@ export const router = createBrowserRouter([
       { path: 'overlays', element: <OverlaysPage /> },
       { path: 'teams', element: <TeamsPage /> },
       { path: 'teams/:number', element: <TeamDetailPage /> },
+      { path: 'rooms', element: <RoomsPage /> },
       { path: 'audit', element: <AuditLogPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'users', element: <UsersPage /> },

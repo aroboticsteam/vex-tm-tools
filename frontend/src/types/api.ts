@@ -395,3 +395,41 @@ export interface EventBusMessage {
   timestamp: number;
   payload: Record<string, unknown>;
 }
+
+// ── Rooms + notifications (backend/schemas/room.py, notification.py) ────
+
+export interface Room {
+  slug: string;
+  name: string;
+  stream_url: string | null;
+  teams: string[];
+}
+
+export interface RoomInput {
+  name: string;
+  stream_url: string | null;
+  teams: string[];
+}
+
+export interface NotificationStats {
+  push_configured: boolean;
+  team_subscriptions: number;
+  staff_subscriptions: number;
+  subscriptions_by_room: Record<string, number>;
+}
+
+export interface BroadcastRequest {
+  title: string;
+  message: string;
+  /** null = every room (and every team subscriber). */
+  rooms: string[] | null;
+  push: boolean;
+  modal: boolean;
+}
+
+export interface BroadcastResult {
+  rooms: number;
+  pushed: number;
+}
+
+export type StaffCategory = 'system' | 'broadcast';

@@ -42,6 +42,7 @@ from backend.core.settings import settings
 from backend.loader import Loader
 from backend.modules.automation.engine import AutomationEngine
 from backend.modules.leader import LeaderElection
+from backend.modules.notifications.service import NotificationService
 from backend.modules.predictor.predictor import Predictor
 from backend.modules.scraper.scraper import Scraper
 from backend.modules.timer.manager import TimerManager
@@ -50,7 +51,10 @@ from backend.routers.auth import router as auth_router
 from backend.routers.automations import router as automations_router
 from backend.routers.debug import router as debug_router
 from backend.routers.integrations import router as integrations_router
+from backend.routers.notifications import router as notifications_router
 from backend.routers.overlays import router as overlays_router
+from backend.routers.public_pages import router as public_pages_router
+from backend.routers.rooms import router as rooms_router
 from backend.routers.scripts import router as scripts_router
 from backend.routers.settings import router as settings_router
 from backend.routers.static_pages import router as static_pages_router
@@ -148,6 +152,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     automation_engine = AutomationEngine(redis_client, async_session_factory)
     scraper = Scraper(redis_client, async_session_factory)
     predictor = Predictor(redis_client, async_session_factory)
+    notification_service = NotificationService(redis_client, async_session_factory)
     # Deliberately NOT set on `app.state` here — only the leader runs these
     # (plan §3.1/§5.1/§5.2). They're set in `on_promoted` and cleared in
     # `on_demoted` below so that `backend.routers.timers._require_timer_manager`
@@ -183,6 +188,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await automation_engine.start()
         await scraper.start()
         await predictor.start()
+        await notification_service.start()
         app.state.timer_manager = timer_manager
         app.state.automation_engine = automation_engine
         app.state.loader = loader
@@ -193,6 +199,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.automation_engine = None
         app.state.loader = None
         app.state.predictor = None
+        await notification_service.stop()
         await predictor.stop()
         await scraper.stop()
         await automation_engine.stop()
@@ -220,6 +227,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.automation_engine = None
     app.state.loader = None
     app.state.predictor = None
+    try:
+        await notification_service.stop()
+    except Exception:
+        logger.exception("Error stopping NotificationService during shutdown")
     try:
         await predictor.stop()
     except Exception:
@@ -309,6 +320,8 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=http_status, content=payload.model_dump())
 
     app.include_router(teams_router)
+    app.include_router(rooms_router)
+    app.include_router(notifications_router)
     app.include_router(auth_router)
     app.include_router(integrations_router)
     app.include_router(overlays_router)
@@ -321,6 +334,7 @@ def create_app() -> FastAPI:
     # `/prompter` (bare teleprompter index, Appendix B.4) — registered here,
     # before the SPA catch-all below, same reasoning as `/prompter/{entity_id}`.
     app.include_router(static_pages_router)
+    app.include_router(public_pages_router)
 
     @app.get("/prompter/{entity_id}", response_class=HTMLResponse, tags=["prompter"])
     async def serve_prompter(

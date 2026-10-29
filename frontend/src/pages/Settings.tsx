@@ -25,10 +25,11 @@ export function SettingsPage() {
   const robotEvents = settingValue(settings, 'robot_events_api');
   const predictor = settingValue(settings, 'predictor');
   const chromaKey = settingValue(settings, 'chroma_key_defaults');
-  // NOTE (AUDIT_FINDINGS.md 1.9): `ntfy` is a new system_settings key landing
-  // in parallel from a backend agent. Read defensively — `settingValue`
-  // already falls back to `{}` if the key doesn't exist yet.
-  const ntfy = settingValue(settings, 'ntfy');
+  // The backend reads/seeds this under `notifications` (backend/core/ntfy.py,
+  // migration c3d4e5f6a7b8) — it holds the ntfy keys plus the team-alert
+  // knobs (migration e1f2a3b4c5d6). PUT replaces the whole value, so `save()`
+  // spreads the existing object to keep keys this page doesn't edit.
+  const notifications = settingValue(settings, 'notifications');
 
   const [s3Endpoint, setS3Endpoint] = useState('');
   const [s3PublicEndpoint, setS3PublicEndpoint] = useState('');
@@ -44,6 +45,11 @@ export function SettingsPage() {
   const [ntfyServerUrl, setNtfyServerUrl] = useState('');
   const [ntfyTopic, setNtfyTopic] = useState('');
   const [ntfyEnabled, setNtfyEnabled] = useState(false);
+  const [teamAlerts, setTeamAlerts] = useState(true);
+  const [leadMatches, setLeadMatches] = useState(3);
+  const [leadMinutes, setLeadMinutes] = useState(15);
+  const [scoresEnabled, setScoresEnabled] = useState(true);
+  const [scoresExcluded, setScoresExcluded] = useState('F');
 
   useEffect(() => {
     setS3Endpoint(String(s3.endpoint_url ?? ''));
@@ -57,9 +63,16 @@ export function SettingsPage() {
     setCkColour(String(chromaKey.colour ?? '#00B140'));
     setCkSimilarity(Number(chromaKey.similarity ?? 0.1));
     setCkBlend(Number(chromaKey.blend ?? 0.05));
-    setNtfyServerUrl(String(ntfy.server_url ?? ''));
-    setNtfyTopic(String(ntfy.topic ?? ''));
-    setNtfyEnabled(Boolean(ntfy.enabled ?? false));
+    setNtfyServerUrl(String(notifications.server_url ?? ''));
+    setNtfyTopic(String(notifications.topic ?? ''));
+    setNtfyEnabled(Boolean(notifications.enabled ?? false));
+    setTeamAlerts(Boolean(notifications.team_alerts_enabled ?? true));
+    setLeadMatches(Number(notifications.lead_matches_x ?? 3));
+    setLeadMinutes(Number(notifications.lead_minutes_y ?? 15));
+    setScoresEnabled(Boolean(notifications.scores_enabled ?? true));
+    setScoresExcluded(
+      Array.isArray(notifications.scores_excluded_rounds) ? notifications.scores_excluded_rounds.join(', ') : 'F',
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings]);
 
@@ -79,7 +92,22 @@ export function SettingsPage() {
         robot_events_api: { value: { token: reToken } },
         predictor: { value: { high_potential_threshold_pct: threshold } },
         chroma_key_defaults: { value: { colour: ckColour, similarity: ckSimilarity, blend: ckBlend } },
-        ntfy: { value: { server_url: ntfyServerUrl, topic: ntfyTopic, enabled: ntfyEnabled } },
+        notifications: {
+          value: {
+            ...notifications,
+            server_url: ntfyServerUrl,
+            topic: ntfyTopic,
+            enabled: ntfyEnabled,
+            team_alerts_enabled: teamAlerts,
+            lead_matches_x: Math.max(0, Math.min(20, Math.round(leadMatches) || 0)),
+            lead_minutes_y: Math.max(0, Math.min(120, Math.round(leadMinutes) || 0)),
+            scores_enabled: scoresEnabled,
+            scores_excluded_rounds: scoresExcluded
+              .split(/[\s,;]+/)
+              .map((r) => r.trim().toUpperCase())
+              .filter(Boolean),
+          },
+        },
       },
       {
         onSuccess: () => pushToast('Settings saved', 'success'),
@@ -196,7 +224,60 @@ export function SettingsPage() {
 
         <Card>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-vmd-textMuted">
-            Notifications (ntfy)
+            Team alerts (room displays &amp; phones)
+          </h2>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Enabled</Label>
+              <Toggle checked={teamAlerts} onChange={setTeamAlerts} disabled={!canEdit} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Alert when N matches away (0 = off)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={20}
+                  value={leadMatches}
+                  onChange={(e) => setLeadMatches(Number(e.target.value))}
+                  disabled={!canEdit}
+                />
+              </div>
+              <div>
+                <Label>Alert N minutes before (0 = off)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={120}
+                  value={leadMinutes}
+                  onChange={(e) => setLeadMinutes(Number(e.target.value))}
+                  disabled={!canEdit}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <Label>Send match scores once submitted</Label>
+              <Toggle checked={scoresEnabled} onChange={setScoresEnabled} disabled={!canEdit} />
+            </div>
+            <div>
+              <Label>Rounds without score alerts (TM round codes)</Label>
+              <Input
+                placeholder="F"
+                value={scoresExcluded}
+                onChange={(e) => setScoresExcluded(e.target.value)}
+                disabled={!canEdit}
+              />
+            </div>
+            <p className="text-xs text-vmd-textSubtle">
+              Both match-count and time alerts fire when enabled. Rooms and rooms&apos; QR codes are managed on the Rooms page.
+              Finals are <code>F</code>; others: <code>QUAL</code>, <code>R16</code>, <code>QF</code>, <code>SF</code>.
+            </p>
+          </div>
+        </Card>
+
+        <Card>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-vmd-textMuted">
+            Staff alerts (ntfy)
           </h2>
           <div className="space-y-2">
             <div className="flex items-center justify-between">

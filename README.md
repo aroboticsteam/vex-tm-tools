@@ -80,6 +80,32 @@ Visit `http://localhost:5173`, and use the emergency admin login at
 path. To exercise a real OIDC login instead, see
 [`local-testing/README.md`](local-testing/README.md).
 
+## Rooms & notifications
+
+Teams are allocated to **rooms** (Rooms page). Each room has a public display page
+at `/room/<slug>` — an optional livestream embed, the room's teams, a QR code, and live
+alerts — and the QR links phones to `/notify?room=<slug>`, where people pick the teams
+(from that room only) they want match alerts for.
+
+- **Alerts:** a leader-only service reads the schedule cached by the `vex_tm` integration and
+  sends, to the room display and to subscribed phones, a heads-up when a match is *x* matches
+  away **and** *y* minutes away, plus the final score once submitted (skipped for rounds you
+  exclude, e.g. finals). Configure x, y and the score rules under Settings → Team alerts.
+  After each `matchStopped` the integration refreshes the schedule a few times so scores show up
+  within seconds, and the schedule otherwise polls every 60s (TM's documented ceiling).
+- **Broadcasts:** staff with `notifications:broadcast` can send a message to chosen rooms (as a
+  popup on their displays) and/or phones.
+- **Staff alerts:** anyone with `notifications:receive` (e.g. the `qecomp-staff` group) can turn on
+  the bell in the top bar to get operator alerts (integration degraded, leader failover, …) and
+  broadcasts as push notifications.
+- **Phone push** uses standard Web Push (VAPID). Generate keys once with
+  `python tools/generate_vapid_keys.py` and set `VAPID_PRIVATE_KEY` / `VAPID_PUBLIC_KEY`
+  (`VAPID_SUBJECT` and `PUBLIC_BASE_URL`, used in the QR codes, are optional). Without keys push
+  is off but room displays still work. Works in Chrome/Edge/Firefox and Safari; on iPhone/iPad the
+  page must first be added to the Home Screen.
+- Your reverse proxy must route `/room/`, `/notify`, `/notify.webmanifest` and `/sw.js` to the backend
+  (see `frontend/nginx.conf`).
+
 ## Tests
 
 ```bash
