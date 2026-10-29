@@ -1,0 +1,75 @@
+# Mumble voice server for desk <-> emcee / floor manager / camera comms
+# (issue #8). Voice is plain Mumble (UDP+TCP 64738); the TMTools comms
+# screens (messages, countdown, agenda) are separate and run in the app.
+#
+# UNTESTED in a real cluster. Needs: a volume for the config/db, a
+# SERVER PASSWORD secret, and 64738/tcp+udp reachable from the iPads
+# (LoadBalancer/NodePort — not behind the HTTP ingress). See docs/COMMS.md.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mumble
+  namespace: qecomp
+type: Opaque
+stringData:
+  MUMBLE_CONFIG_serverpassword: "CHANGE-ME"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mumble
+  namespace: qecomp
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mumble
+  template:
+    metadata:
+      labels:
+        app: mumble
+    spec:
+      containers:
+        - name: mumble
+          image: mumblevoip/mumble-server:v1.6.870
+          ports:
+            - containerPort: 64738
+              protocol: TCP
+            - containerPort: 64738
+              protocol: UDP
+          envFrom:
+            - secretRef:
+                name: mumble
+          env:
+            - name: MUMBLE_CONFIG_welcometext
+              value: "TMTools comms"
+            - name: MUMBLE_CONFIG_users
+              value: "40"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+      volumes:
+        - name: data
+          emptyDir: {}   # replace with a PVC to keep channels/registrations across restarts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mumble
+  namespace: qecomp
+spec:
+  type: LoadBalancer
+  selector:
+    app: mumble
+  ports:
+    - name: mumble-tcp
+      port: 64738
+      protocol: TCP
+    - name: mumble-udp
+      port: 64738
+      protocol: UDP

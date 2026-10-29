@@ -49,6 +49,7 @@ from backend.modules.timer.manager import TimerManager
 from backend.routers.audit import router as audit_router
 from backend.routers.auth import router as auth_router
 from backend.routers.button_pages import router as button_pages_router
+from backend.routers.comms import router as comms_router
 from backend.routers.automations import router as automations_router
 from backend.routers.debug import router as debug_router
 from backend.routers.integrations import router as integrations_router
@@ -325,6 +326,7 @@ def create_app() -> FastAPI:
     app.include_router(team_clips_router)
     app.include_router(rooms_router)
     app.include_router(button_pages_router)
+    app.include_router(comms_router)
     app.include_router(notifications_router)
     app.include_router(auth_router)
     app.include_router(integrations_router)

@@ -240,3 +240,34 @@ async def test_overlay_show_team_event_is_forwarded_to_overlay_clients():
 
     await manager._dispatch({"entity_id": "overlay.f1", "type": "overlay_show_team", "payload": {"team": 5}})
     assert [m for m in overlay.sent if m.get("type") == "show_team"][-1]["payload"] == {"team": None}
+
+
+async def test_station_events_are_forwarded_only_to_named_stations():
+    from backend.routers.ws import ConnectionManager
+
+    class FakeWs:
+        def __init__(self):
+            self.sent = []
+
+        async def accept(self):
+            pass
+
+        async def send_json(self, message):
+            self.sent.append(message)
+
+    manager = ConnectionManager(redis=object())
+    a, b = FakeWs(), FakeWs()
+    await manager.connect("station:emcee-1", a)
+    await manager.connect("station:floor-1", b)
+
+    await manager._dispatch(
+        {"entity_id": "comms", "type": "station_message", "timestamp": 1.0,
+         "payload": {"stations": ["emcee-1"], "id": "m1", "text": "Hello", "flash": True, "sent_at": 5.0, "secret": "no"}}
+    )
+    got = [m for m in a.sent if m.get("type") == "message"]
+    assert got == [{"type": "message", "id": "m1", "text": "Hello", "flash": True, "sent_at": 5.0}]
+    assert not [m for m in b.sent if m.get("type") == "message"]
+
+    await manager._dispatch({"entity_id": "comms", "type": "station_screen", "payload": {"stations": ["floor-1"], "screen": "agenda_day"}})
+    assert [m for m in b.sent if m.get("type") == "screen"] == [{"type": "screen", "screen": "agenda_day"}]
+    assert not [m for m in a.sent if m.get("type") == "screen"]

@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.dependencies import get_db
 from backend.core.settings import settings
+from backend.models.comms import Station
 from backend.models.room import Room
 from backend.schemas.room import SLUG_PATTERN
 
@@ -36,6 +37,7 @@ router = APIRouter(tags=["public-pages"])
 _STATIC_DIR = Path(__file__).parent.parent / "static"
 _ROOM_HTML = (_STATIC_DIR / "room.html").read_text(encoding="utf-8")
 _NOTIFY_HTML = (_STATIC_DIR / "notify.html").read_text(encoding="utf-8")
+_STATION_HTML = (_STATIC_DIR / "station.html").read_text(encoding="utf-8")
 _SW_JS = (_STATIC_DIR / "sw.js").read_text(encoding="utf-8")
 
 _SLUG_RE = re.compile(SLUG_PATTERN)
@@ -64,6 +66,14 @@ async def _require_room(db: AsyncSession, slug: str) -> Room:
 async def serve_room(slug: str, db: Annotated[AsyncSession, Depends(get_db)]) -> HTMLResponse:
     await _require_room(db, slug)
     return HTMLResponse(_ROOM_HTML.replace('"__ROOM_SLUG__"', json.dumps(slug)))
+
+
+@router.get("/station/{slug}", response_class=HTMLResponse)
+async def serve_station(slug: str, db: Annotated[AsyncSession, Depends(get_db)]) -> HTMLResponse:
+    station = await db.get(Station, slug) if _SLUG_RE.match(slug) else None
+    if station is None:
+        raise HTTPException(status_code=404, detail="Station not found")
+    return HTMLResponse(_STATION_HTML.replace('"__STATION_SLUG__"', json.dumps(slug)))
 
 
 @router.get("/room/{slug}/qr.svg")

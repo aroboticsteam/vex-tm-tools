@@ -33,6 +33,7 @@ from backend.core.redis import redis_client
 from backend.core.security import validate_prompter_token
 from backend.core.sessions import SESSION_COOKIE_NAME, get_session, unsign_session_id
 from backend.models.overlay import OverlayInstance
+from backend.models.comms import Station
 from backend.models.room import Room
 from backend.models.timer import PrompterCue, TimerInstance
 
@@ -49,6 +50,8 @@ TIMER_EVENT_TYPES = {"timer_started", "timer_milestone", "timer_finished", "time
 EVENTS_BUCKET = "__events__"
 #: Bookkeeping bucket prefix for the public `/ws/room/{slug}` connections.
 ROOM_BUCKET_PREFIX = "room:"
+#: Same for the public `/ws/station/{slug}` connections (issue #8).
+STATION_BUCKET_PREFIX = "station:"
 
 # WebSocket close codes (RFC 6455 range 4000-4999 is free for application use).
 WS_CLOSE_POLICY_VIOLATION = 4003  # invalid/missing prompter token
@@ -186,8 +189,27 @@ class ConnectionManager:
             await self._dispatch_upcoming_match(data)
         elif event_type == "room_notice":
             await self._dispatch_room_notice(data)
+        elif event_type in ("station_message", "station_screen"):
+            await self._dispatch_station_event(event_type, data)
         elif event_type == "overlay_show_team" and entity_id:
             await self._dispatch_overlay_show_team(entity_id, data)
+
+    async def _dispatch_station_event(self, event_type: str, data: dict[str, Any]) -> None:
+        """Desk -> iPad: forwards a message or screen change to each named
+        station's `/ws/station/<slug>` clients (display-safe fields only)."""
+        payload = data.get("payload") or {}
+        if event_type == "station_message":
+            out = {
+                "type": "message",
+                "id": payload.get("id"),
+                "text": payload.get("text", ""),
+                "flash": bool(payload.get("flash")),
+                "sent_at": payload.get("sent_at", data.get("timestamp", time.time())),
+            }
+        else:
+            out = {"type": "screen", "screen": payload.get("screen")}
+        for slug in payload.get("stations") or []:
+            await self.broadcast(f"{STATION_BUCKET_PREFIX}{slug}", out)
 
     async def _dispatch_overlay_show_team(self, entity_id: str, data: dict[str, Any]) -> None:
         """Operator chose a single team to feature on an overlay (finals
@@ -425,6 +447,29 @@ async def ws_room(websocket: WebSocket, slug: str) -> None:
         await websocket.close(code=WS_CLOSE_POLICY_VIOLATION, reason="Unknown room")
         return
     bucket = f"{ROOM_BUCKET_PREFIX}{slug}"
+    await manager.connect(bucket, websocket)
+    try:
+        while True:
+            await websocket.receive_text()  # keepalive pings from the page
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await manager.disconnect(bucket, websocket)
+
+
+@router.websocket("/ws/station/{slug}")
+async def ws_station(websocket: WebSocket, slug: str) -> None:
+    """Public (no auth) feed for a comms iPad page: only that station's
+    messages and screen changes come down; nothing sent up is acted on."""
+    if not slug or len(slug) > 50 or not set(slug) <= _ROOM_SLUG_CHARS:
+        await websocket.close(code=WS_CLOSE_POLICY_VIOLATION, reason="Unknown station")
+        return
+    async with async_session_factory() as session:
+        station = await session.get(Station, slug)
+    if station is None:
+        await websocket.close(code=WS_CLOSE_POLICY_VIOLATION, reason="Unknown station")
+        return
+    bucket = f"{STATION_BUCKET_PREFIX}{slug}"
     await manager.connect(bucket, websocket)
     try:
         while True:
