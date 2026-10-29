@@ -279,3 +279,12 @@ async def test_default_poll_interval_is_one_minute(redis_client):
     from backend.modules.integrations.vex_tm.integration import DEFAULT_POLL_INTERVAL_SECONDS
 
     assert DEFAULT_POLL_INTERVAL_SECONDS == 60
+
+
+@pytest.mark.parametrize("service", ["set_audience_display", "queue_skills"])
+async def test_call_service_missing_field_is_value_error(redis_client, service):
+    integration = VexTmIntegration("vex_tm.test", _make_config(), redis_client, None)
+    integration._ws = AsyncMock()
+    with pytest.raises(ValueError):
+        await integration.call_service(service, {})
+    integration._ws.send.assert_not_awaited()

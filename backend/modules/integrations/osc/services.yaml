@@ -1,0 +1,16 @@
+services:
+  send:
+    description: Send one OSC message.
+    fields:
+      address:
+        type: string
+        required: true
+      args:
+        type: array
+        required: false
+  send_bundle:
+    description: Send several OSC messages in order.
+    fields:
+      messages:
+        type: array
+        required: true

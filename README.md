@@ -30,7 +30,7 @@ and [`docs/API.md`](docs/API.md) for the generated REST API reference.
 
 | Path | What |
 |---|---|
-| [`backend/`](backend/) | FastAPI app: leader election, the integration loader + clients (VEX TM/Spotify/ATEM/ZerOS/OBS), the automation engine, REST routers, WebSocket fan-out |
+| [`backend/`](backend/) | FastAPI app: leader election, the integration loader + clients (VEX TM/Spotify/ATEM/ZerOS/OBS/WLED/OSC/PTZ), the automation engine, REST routers, WebSocket fan-out |
 | [`frontend/`](frontend/) | React + Vite admin SPA |
 | [`alembic/`](alembic/) | Postgres schema migrations |
 | [`k8s/`](k8s/) | Kubernetes manifests for the real k3s deployment |
@@ -133,6 +133,12 @@ over from the project's original notes:
 **Spotify** — [Web API docs](https://developer.spotify.com/documentation/web-api)
 
 **ATEM switching** (V5RC only) — [PyATEMMax](https://clvlabs.github.io/PyATEMMax/)
+
+**WLED / OSC / PTZ** (issue #7)
+
+- WLED: [JSON API](https://kno.wled.ge/interfaces/json-api/) (`wled` integration: power, brightness, colour, presets, effects, `flash`)
+- OSC: generic OSC-over-UDP sender (`osc` integration: `send`, `send_bundle`)
+- PTZ: VISCA-over-IP, UDP 52381 (`ptz` integration: presets, move, zoom, home). BirdDog X1 compatibility is unverified; test on site.
 
 **ZerOS lighting board** (OSC control)
 - [FLX S48 manual](https://support.vikinglighting.co.uk/downloads/FLX%20S%20User%20Manual%20v1.pdf)

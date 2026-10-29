@@ -35,7 +35,7 @@ reachable without a prior session.
 ## Integrations (`/api/v1/integrations`)
 
 Manages dynamically-loaded integration instances (`vex_tm`, `spotify`,
-`atem`, `zeros`, `obs` — plan §5.3-§5.7) via the `Loader`/`INTEGRATION_REGISTRY`.
+`atem`, `zeros`, `obs`, `wled`, `osc`, `ptz` — plan §5.3-§5.7) via the `Loader`/`INTEGRATION_REGISTRY`.
 
 | Method | Path | Description |
 |---|---|---|

@@ -1,0 +1,30 @@
+domain: osc
+name: "OSC Sender"
+version: "1.0.0"
+description: "Send arbitrary OSC messages over UDP (lighting consoles, show control, etc.)."
+requires_oauth: false
+config_schema:
+  ip:
+    type: string
+    label: "OSC Target IP Address"
+    secret: false
+  port:
+    type: integer
+    label: "OSC UDP Port"
+    secret: false
+services:
+  send:
+    description: "Send one OSC message."
+    fields:
+      address:
+        type: string
+        required: true
+      args:
+        type: array
+        required: false
+  send_bundle:
+    description: "Send several OSC messages in order."
+    fields:
+      messages:
+        type: array
+        required: true
