@@ -1,0 +1,49 @@
+services:
+  set_power:
+    description: "Turn the strip on or off."
+    fields:
+      on:
+        type: boolean
+        required: true
+  set_brightness:
+    description: "Set master brightness (0-255)."
+    fields:
+      brightness:
+        type: integer
+        required: true
+  set_color:
+    description: "Set the primary colour (hex like #FF0000)."
+    fields:
+      color:
+        type: string
+        required: true
+  set_preset:
+    description: "Apply a saved WLED preset."
+    fields:
+      preset:
+        type: integer
+        required: true
+  set_effect:
+    description: "Apply an effect by id, with optional speed/intensity."
+    fields:
+      effect:
+        type: integer
+        required: true
+      speed:
+        type: integer
+        required: false
+      intensity:
+        type: integer
+        required: false
+  flash:
+    description: "Flash the strip then restore its previous state."
+    fields:
+      color:
+        type: string
+        required: false
+      count:
+        type: integer
+        required: false
+      interval_ms:
+        type: integer
+        required: false

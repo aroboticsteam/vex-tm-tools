@@ -1,0 +1,36 @@
+services:
+  recall_preset:
+    description: Recall a stored position (0-254).
+    fields:
+      preset:
+        type: integer
+        required: true
+  store_preset:
+    description: Store the current position as a preset (0-254).
+    fields:
+      preset:
+        type: integer
+        required: true
+  move:
+    description: 'Start moving. direction: left|right|up|down|up_left|up_right|down_left|down_right;
+      speed 1-24.'
+    fields:
+      direction:
+        type: string
+        required: true
+      speed:
+        type: integer
+        required: false
+  stop:
+    description: Stop pan/tilt and zoom movement.
+  home:
+    description: Return to the home position.
+  zoom:
+    description: 'Start zooming. direction: in|out|stop; speed 0-7 (0 = standard).'
+    fields:
+      direction:
+        type: string
+        required: true
+      speed:
+        type: integer
+        required: false

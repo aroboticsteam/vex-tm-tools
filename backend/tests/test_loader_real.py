@@ -79,7 +79,7 @@ def _entity_id() -> str:
     return f"vex_tm.real_loader_test_{uuid.uuid4().hex[:8]}"
 
 
-async def test_discover_registers_all_five_domains_against_real_infra(real_redis, real_session_factory):
+async def test_discover_registers_all_domains_against_real_infra(real_redis, real_session_factory):
     ldr = loader_module.Loader(redis=real_redis, session_factory=real_session_factory)
     ldr.discover()
     assert set(loader_module.INTEGRATION_REGISTRY.keys()) == {
@@ -88,6 +88,9 @@ async def test_discover_registers_all_five_domains_against_real_infra(real_redis
         "atem",
         "zeros",
         "obs",
+        "wled",
+        "osc",
+        "ptz",
     }
 
 

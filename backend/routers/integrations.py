@@ -344,6 +344,9 @@ async def delete_integration(
 
 _DOMAIN_PERMISSIONS = {
     "zeros": "vfx:control",
+    "osc": "vfx:control",
+    "wled": "vfx:control",
+    "ptz": "video:control",
     "atem": "video:control",
     "obs": "video:control",
     "spotify": "audio:control",

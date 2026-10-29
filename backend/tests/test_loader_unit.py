@@ -141,7 +141,7 @@ def reset_registry():
     loader_module._MANIFESTS.clear()
 
 
-def test_discover_finds_all_five_domains():
+def test_discover_finds_all_domains():
     loader_module._discover()
     assert set(loader_module.INTEGRATION_REGISTRY.keys()) == {
         "vex_tm",
@@ -149,6 +149,9 @@ def test_discover_finds_all_five_domains():
         "atem",
         "zeros",
         "obs",
+        "wled",
+        "osc",
+        "ptz",
     }
     for domain, manifest in loader_module._MANIFESTS.items():
         assert "config_schema" in manifest

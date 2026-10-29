@@ -199,7 +199,10 @@ class VexTmIntegration(Integration):
             raise ValueError(f"Unknown service '{service}' for vex_tm integration")
         if self._ws is None:
             raise IntegrationError(f"vex_tm[{self.entity_id}]: WebSocket is not connected")
-        message = builder(data)
+        try:
+            message = builder(data)
+        except KeyError as exc:
+            raise ValueError(f"Service '{service}' is missing required field {exc}") from None
         await self._ws.send(json.dumps(message))
         return {"sent": message}
 
