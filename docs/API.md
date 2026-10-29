@@ -225,3 +225,22 @@ or open `/docs` for the full interactive Swagger UI.
 | POST | `/api/v1/teams/{number}/clips/{kind}` | Upload a recorded clip (`kind` = `bot` or `team`; webm/mp4/mov, max 200 MB). Keyed to a transparent WebM, keeping square framing and frame rate, capped at 12 s (`video:upload`). |
 | GET | `/api/v1/public/overlay/teams?teams=A,B` | Unauthenticated, display-safe team info + presigned clip URLs for the OBS overlay (max 12 teams). |
 | POST | `/api/v1/overlays/{entity_id}/show-team` | Finals spotlight: show one team on an overlay; `{"team": null}` returns to the match view (`overlays:edit`). |
+
+
+## Comms (issue #8)
+
+Staff (`comms:read` / `comms:send` / `comms:manage`):
+
+| Method | Path | Description |
+|---|---|---|
+| GET/POST | `/api/v1/comms/stations` | List / create stations (`manage` to write). |
+| PUT/DELETE | `/api/v1/comms/stations/{slug}` | Update / delete a station. |
+| GET/POST, PUT/DELETE | `/api/v1/comms/presets[/{id}]` | Canned messages (optionally per role, optionally flashing). |
+| GET/POST, PUT/DELETE | `/api/v1/comms/agenda[/{id}]` | Day / finals agenda items. |
+| POST | `/api/v1/comms/send` | Send text (optional flash) to stations, roles or everyone. |
+| POST | `/api/v1/comms/screen` | Push a screen (`messages`, `countdown`, `agenda_day`, `agenda_finals`); stations whose role can't show it are skipped. |
+| GET | `/api/v1/comms/inbox` | Messages typed on iPads (`?unacknowledged=true`). |
+| POST | `/api/v1/comms/inbox/{id}/ack` | Mark read. |
+| DELETE | `/api/v1/comms/inbox` | Clear read messages. |
+
+Public (the station slug is the credential): `GET /api/v1/public/stations/{slug}`, `.../agenda`, `.../next-match` (emcees only), `POST .../messages`; page `GET /station/{slug}`; socket `/ws/station/{slug}`.

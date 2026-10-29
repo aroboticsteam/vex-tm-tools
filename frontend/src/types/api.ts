@@ -483,3 +483,41 @@ export interface TeamClips {
   team_number: string;
   clips: Record<ClipKind, TeamClipStatus>;
 }
+
+// ── Comms: stations, presets, agenda, inbox (issue #8) ─────────────────
+
+export type StationRole = 'emcee' | 'floor_manager' | 'camera';
+export type CommsScreen = 'messages' | 'countdown' | 'agenda_day' | 'agenda_finals';
+
+export interface Station {
+  slug: string;
+  name: string;
+  role: StationRole;
+}
+
+export interface CommsPreset {
+  id: string;
+  label: string;
+  message: string;
+  flash: boolean;
+  role: StationRole | null;
+  position: number;
+}
+
+export interface AgendaItem {
+  id: string;
+  scope: 'day' | 'finals';
+  start_time: string;
+  end_time: string | null;
+  title: string;
+  details: string | null;
+  position: number;
+}
+
+export interface StationMessage {
+  id: string;
+  station_slug: string;
+  text: string;
+  acknowledged: boolean;
+  created_at: string;
+}
