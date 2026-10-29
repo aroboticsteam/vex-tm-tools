@@ -37,6 +37,7 @@ router = APIRouter(tags=["public-pages"])
 _STATIC_DIR = Path(__file__).parent.parent / "static"
 _ROOM_HTML = (_STATIC_DIR / "room.html").read_text(encoding="utf-8")
 _NOTIFY_HTML = (_STATIC_DIR / "notify.html").read_text(encoding="utf-8")
+_SITE_HTML = (_STATIC_DIR / "site.html").read_text(encoding="utf-8")
 _STATION_HTML = (_STATIC_DIR / "station.html").read_text(encoding="utf-8")
 _SW_JS = (_STATIC_DIR / "sw.js").read_text(encoding="utf-8")
 
@@ -66,6 +67,13 @@ async def _require_room(db: AsyncSession, slug: str) -> Room:
 async def serve_room(slug: str, db: Annotated[AsyncSession, Depends(get_db)]) -> HTMLResponse:
     await _require_room(db, slug)
     return HTMLResponse(_ROOM_HTML.replace('"__ROOM_SLUG__"', json.dumps(slug)))
+
+
+@router.get("/site", response_class=HTMLResponse)
+async def serve_site() -> HTMLResponse:
+    """Team-facing public website (issue #10): one page, hash-routed, fed by
+    `/api/v1/public/site/*`."""
+    return HTMLResponse(_SITE_HTML)
 
 
 @router.get("/station/{slug}", response_class=HTMLResponse)

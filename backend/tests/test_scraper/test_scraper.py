@@ -442,3 +442,69 @@ async def test_robot_events_skips_rankings_awards_skills_when_season_unresolvabl
                 setting = await session.get(SystemSetting, "robot_events_api")
                 setting.value = original_value
                 await session.commit()
+
+
+# ── Documented TM response shapes (docs/modules/VEX_API_DOCS.md) ─────────
+
+
+def test_team_numbers_in_handles_documented_and_legacy_shapes():
+    from backend.modules.scraper.scraper import _team_numbers_in
+
+    assert _team_numbers_in({"alliance": {"teams": [{"number": "7925S"}]}}) == {"7925S"}  # rankings
+    assert _team_numbers_in({"number": "1082C", "rank": 1}) == {"1082C"}  # skills
+    assert _team_numbers_in({"team": {"number": "1A"}}) == {"1A"}
+    assert _team_numbers_in({"team": "2B"}) == {"2B"}
+    assert _team_numbers_in({"alliance": {"teams": [{"number": "3A"}, {"number": "3B"}]}}) == {"3A", "3B"}
+    assert _team_numbers_in({}) == set() and _team_numbers_in(None) == set()
+
+
+def test_team_location_prefers_location_then_joins_city_state_country():
+    from backend.modules.scraper.scraper import _country_from_location, _team_location
+
+    assert _team_location({"location": "London, United Kingdom", "city": "x"}) == "London, United Kingdom"
+    assert _team_location({"city": "Redmond", "state": "Washington", "country": "United States"}) == "Redmond, Washington, United States"
+    assert _team_location({"city": "London", "country": "United Kingdom"}) == "London, United Kingdom"
+    assert _team_location({}) is None
+    assert _country_from_location("London, United Kingdom") == "United Kingdom"
+    assert _country_from_location("Nowhere") is None
+
+
+async def test_fetch_from_tm_uses_div_id_and_documented_ranking_shape(scraper, mocker):
+    mocker.patch.object(scraper, "_get_tm_base_url_and_token", new_callable=mocker.AsyncMock, return_value=("http://tm", "tok", None))
+    responses = {
+        "/api/teams": [{"number": "10D", "name": "Exothermic Dusk", "school": "Exothermic Robotics", "city": "Redmond", "country": "United States", "divId": 2}],
+        "/api/event": {"name": "Event"},
+        "/api/rankings/2/QUAL": [
+            {"rank": 3, "alliance": {"teams": [{"number": "99X"}]}},
+            {"rank": 1, "alliance": {"teams": [{"number": "10D"}]}, "wins": 4},
+        ],
+        "/api/matches/2": [],
+        "/api/skills": [{"rank": 2, "number": "10D", "totalScore": 40}, {"rank": 1, "number": "11E", "totalScore": 50}],
+    }
+
+    async def fake_get(base_url, token, api_key, path, envelope_key=None):
+        return responses[path]
+
+    mocker.patch.object(scraper, "_tm_get", side_effect=fake_get)
+    data = await scraper._fetch_from_tm("10D", "vex_tm.test")
+    assert data["division_id"] == 2
+    assert data["ranking"]["rank"] == 1 and data["ranking"]["wins"] == 4
+    assert [s["number"] for s in data["skills"]] == ["10D"]
+
+
+def test_merge_profile_maps_documented_team_fields():
+    profile = Scraper._merge_profile(
+        "10D",
+        {
+            "team_row": {"name": "Exothermic Dusk", "school": "Exothermic Robotics", "city": "Redmond", "state": "Washington", "country": "United States"},
+            "division_id": 2,
+            "ranking": {"rank": 1},
+            "matches": [],
+            "skills": [],
+        },
+        {},
+    )
+    stats = profile["cached_stats"]
+    assert stats["team_name"] == "Exothermic Dusk" and stats["organisation"] == "Exothermic Robotics"
+    assert stats["location"] == "Redmond, Washington, United States" and stats["country"] == "United States"
+    assert stats["division_id"] == 2

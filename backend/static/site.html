@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Competition</title>
+<style>
+  :root { color-scheme: dark; --bg:#0f1115; --card:#161a23; --line:#262c3c; --muted:#8e97ad; --accent:#3b6fe0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: #eceff4; font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; }
+  a { color: #8db4ff; text-decoration: none; } a:hover { text-decoration: underline; }
+  header { position: sticky; top: 0; z-index: 5; background: #11141b; border-bottom: 1px solid var(--line); }
+  .bar { max-width: 1100px; margin: 0 auto; padding: .6rem 1rem; display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; }
+  .bar h1 { margin: 0; font-size: 1.15rem; flex: 1 1 auto; }
+  nav { display: flex; gap: .3rem; flex-wrap: wrap; }
+  nav a { color: #cfd5e4; padding: .35rem .8rem; border-radius: 999px; border: 1px solid transparent; }
+  nav a.active { background: var(--accent); color: #fff; } nav a:hover { text-decoration: none; border-color: var(--line); }
+  main { max-width: 1100px; margin: 0 auto; padding: 1rem; }
+  h2 { margin: 1.4rem 0 .6rem; font-size: 1.15rem; } h2:first-child { margin-top: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1rem; }
+  .grid { display: grid; gap: .8rem; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .stat { text-align: center; } .stat b { display: block; font-size: 2rem; } .stat span { color: var(--muted); font-size: .9rem; }
+  .muted { color: var(--muted); } .empty { color: var(--muted); padding: 1rem 0; }
+  .scroll { max-height: 26rem; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+  th, td { padding: .45rem .7rem; text-align: left; border-bottom: 1px solid var(--line); } th { position: sticky; top: 0; background: #1a1f2b; color: var(--muted); font-weight: 600; z-index: 1; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .red { color: #ff8b94; } .blue { color: #8db4ff; }
+  .row-cur { background: #1f2f55; font-weight: 800; font-size: 1.05rem; }
+  .tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin: .6rem 0; }
+  .tabs button, select, input { background: #1d2230; border: 1px solid #2c3347; color: #eceff4; border-radius: 8px; padding: .4rem .8rem; font-size: .95rem; }
+  .tabs button.active { background: var(--accent); border-color: var(--accent); }
+  .tools { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .7rem; }
+  .teamcard { display: block; color: inherit; } .teamcard:hover { text-decoration: none; border-color: var(--accent); }
+  .teamcard b { font-size: 1.3rem; } .kv { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; }
+  video { max-width: 100%; border-radius: 10px; background: #000; }
+  .clips { display: grid; gap: .8rem; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .frame { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; margin-bottom: 1rem; }
+  .frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .map { position: relative; overflow: auto; max-height: 70vh; border: 1px solid var(--line); border-radius: 12px; background: #000; }
+  .map .inner { position: relative; transform-origin: top left; } .map img { display: block; width: 100%; }
+  .pin { position: absolute; transform: translate(-50%, -50%); background: var(--accent); color: #fff; border: 2px solid #fff; border-radius: 999px; padding: .15rem .55rem; font-size: .8rem; cursor: pointer; }
+  #pop { position: fixed; inset: 0; background: #000b; display: none; align-items: center; justify-content: center; padding: 1rem; z-index: 20; } #pop .box { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 1.2rem; max-width: 520px; width: 100%; max-height: 80vh; overflow: auto; }
+  footer { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 3rem; color: var(--muted); font-size: .9rem; }
+  .spons { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; } .spons img { max-height: 48px; }
+</style>
+</head>
+<body>
+<header><div class="bar"><h1 id="title">Competition</h1>
+<nav id="nav"></nav></div></header>
+<main id="view"><p class="empty">Loading…</p></main>
+<div id="pop"><div class="box" id="popbox"></div></div>
+<footer id="foot"></footer>
+<script>
+(function () {
+  var NAV = [['home', 'Home'], ['event', 'Event'], ['teams', 'Teams'], ['live', 'Livestreams'], ['map', 'Map']];
+  var view = document.getElementById('view'), cache = {}, timers = [];
+
+  function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined && text !== null) n.textContent = text; return n; }
+  function get(path) { return fetch('/api/v1/public/site/' + path).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }); }
+  function fmtTime(ts) { return ts ? new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '–'; }
+  function teamLink(n) { var a = el('a', null, n); a.href = '#team/' + encodeURIComponent(n); return a; }
+  function num(v, d) { return v === null || v === undefined ? '–' : (d !== undefined && typeof v === 'number' ? v.toFixed(d) : v); }
+  function clearTimers() { timers.forEach(clearInterval); timers = []; }
+  function tr(cells, cls) { var r = el('tr', cls); cells.forEach(function (c) { var td = el('td'); if (c && c.nodeType) td.appendChild(c); else { td.textContent = c === null || c === undefined ? '–' : c; if (typeof c === 'number') td.className = 'n'; } r.appendChild(td); }); return r; }
+  function table(heads, rows, empty) {
+    if (!rows.length) return el('div', 'empty', empty);
+    var t = el('table'), h = el('tr');
+    heads.forEach(function (x) { h.appendChild(el('th', null, x)); }); var th = el('thead'); th.appendChild(h); t.appendChild(th);
+    var tb = el('tbody'); rows.forEach(function (r) { tb.appendChild(r); }); t.appendChild(tb);
+    var wrap = el('div', 'scroll'); wrap.appendChild(t); return wrap;
+  }
+
+  // ── Home ───────────────────────────────────────────────────────────
+  function home(o) {
+    var box = el('div');
+    var stats = el('div', 'grid');
+    [['teams', 'Teams'], ['matches_played', 'Matches played'], ['matches_total', 'Matches scheduled'], ['awards', 'Awards']].forEach(function (s) {
+      var c = el('div', 'card stat'); c.appendChild(el('b', null, String(o.stats[s[0]]))); c.appendChild(el('span', null, s[1])); stats.appendChild(c);
+    });
+    box.appendChild(el('h2', null, 'Welcome to ' + o.title)); box.appendChild(stats);
+    var nc = o.next_competition;
+    if (nc && nc.name) {
+      var c = el('div', 'card'); c.style.marginTop = '1rem';
+      c.appendChild(el('b', null, 'Next competition: ' + nc.name));
+      if (nc.date) {
+        var days = Math.ceil((new Date(nc.date + 'T00:00:00') - new Date()) / 86400000);
+        c.appendChild(el('div', 'muted', nc.date + (days >= 0 ? '  ·  ' + days + ' day' + (days === 1 ? '' : 's') + ' left' : '')));
+      }
+      if (nc.teams && nc.teams.length) c.appendChild(el('div', 'muted', 'Teams attending: ' + nc.teams.join(', ')));
+      box.appendChild(c);
+    }
+    var links = el('div', 'grid'); links.style.marginTop = '1rem';
+    [['#event', 'Agenda, matches & rankings'], ['#teams', 'Team profiles'], ['#live', 'Livestreams'], ['#map', 'Event map'], ['/notify', 'Get match alerts on your phone']].forEach(function (l) {
+      var a = el('a', 'card teamcard', l[1]); a.href = l[0]; links.appendChild(a);
+    });
+    box.appendChild(links);
+    if (o.sponsors && o.sponsors.length) {
+      box.appendChild(el('h2', null, 'Our sponsors'));
+      var sp = el('div', 'spons');
+      o.sponsors.forEach(function (s) {
+        var node;
+        if (s.logo_url) { node = el('img'); node.src = s.logo_url; node.alt = s.name || ''; } else node = el('span', null, s.name);
+        if (s.url && /^https?:\/\//.test(s.url)) { var a = el('a'); a.href = s.url; a.target = '_blank'; a.rel = 'noopener'; a.appendChild(node); node = a; }
+        sp.appendChild(node);
+      });
+      box.appendChild(sp);
+    }
+    return box;
+  }
+
+  // ── Event ──────────────────────────────────────────────────────────
+  function agendaCurrent(items) {
+    var now = new Date(), mins = now.getHours() * 60 + now.getMinutes(), cur = -1;
+    items.forEach(function (it, i) {
+      var p = it.start_time.split(':'), s = +p[0] * 60 + +p[1], e = null;
+      if (it.end_time) { var q = it.end_time.split(':'); e = +q[0] * 60 + +q[1]; }
+      if (s <= mins && (e === null || mins < e)) cur = i;
+    });
+    return cur;
+  }
+
+  function event(d, state) {
+    var box = el('div');
+    var progs = {}; Object.keys(d.divisions).forEach(function (k) { if (d.divisions[k].programme) progs[d.divisions[k].programme] = true; });
+    var progList = Object.keys(progs);
+    var tools = el('div', 'tools');
+    function select(label, opts, key) {
+      var s = el('select'); opts.forEach(function (o) { var op = el('option', null, o[1]); op.value = o[0]; if (state[key] === o[0]) op.selected = true; s.appendChild(op); });
+      s.addEventListener('change', function () { state[key] = s.value; render(); }); tools.appendChild(el('span', 'muted', label)); tools.appendChild(s);
+    }
+    if (progList.length > 1) select('Programme', [['', 'All']].concat(progList.map(function (p) { return [p, p === 'iq' ? 'VIQRC' : 'V5RC']; })), 'prog');
+    var divs = Object.keys(d.divisions).filter(function (k) { return !state.prog || d.divisions[k].programme === state.prog; });
+    if (divs.length > 1) select('Division', [['', 'All']].concat(divs.map(function (k) { return [k, 'Division ' + k]; })), 'div');
+    box.appendChild(tools);
+    var inScope = function (division) { return (!state.div || String(division) === state.div) && (!state.prog || !d.divisions[division] || d.divisions[division].programme === state.prog); };
+
+    var tabs = el('div', 'tabs');
+    [['agenda', 'Agenda'], ['matches', 'Matches'], ['rank', 'Qualification rankings'], ['skills', 'Skills rankings']].forEach(function (t) {
+      var b = el('button', state.tab === t[0] ? 'active' : '', t[1]); b.addEventListener('click', function () { state.tab = t[0]; render(); }); tabs.appendChild(b);
+    });
+    box.appendChild(tabs);
+
+    if (state.tab === 'agenda') {
+      ['day', 'finals'].forEach(function (scope) {
+        var items = d.agenda.filter(function (a) { return a.scope === scope; });
+        if (!items.length) return;
+        box.appendChild(el('h2', null, scope === 'day' ? 'Day agenda' : 'Finals agenda'));
+        var cur = scope === 'day' ? agendaCurrent(items) : -1;
+        var t = table(['Time', 'Item'], items.map(function (a, i) {
+          var title = el('span', null, a.title); if (a.details) { title.appendChild(el('div', 'muted', a.details)); }
+          return tr([a.start_time + (a.end_time ? '–' + a.end_time : ''), title], i === cur ? 'row-cur' : '');
+        }), '');
+        box.appendChild(t);
+      });
+      if (!d.agenda.length) box.appendChild(el('div', 'empty', 'No agenda published yet.'));
+    } else if (state.tab === 'matches') {
+      var ms = d.matches.filter(function (m) { return inScope(m.division); });
+      box.appendChild(table(['Match', 'Time', 'Red', 'Blue', 'Score'], ms.map(function (m) {
+        var r = el('span', 'red'), b = el('span', 'blue');
+        m.red.forEach(function (n, i) { if (i) r.appendChild(document.createTextNode(', ')); r.appendChild(teamLink(n)); });
+        m.blue.forEach(function (n, i) { if (i) b.appendChild(document.createTextNode(', ')); b.appendChild(teamLink(n)); });
+        return tr([m.label, fmtTime(m.scheduled_at), r, b, m.score ? m.score[0] + ' – ' + m.score[1] : ''], '');
+      }), 'No matches scheduled yet.'));
+    } else if (state.tab === 'rank') {
+      box.appendChild(table(['Rank', 'Team', 'W-L-T', 'Avg pts', 'High'], d.rankings.filter(function (r) { return inScope(r.division); }).map(function (r) {
+        return tr([r.rank, teamLabel(r), num(r.wins) + '-' + num(r.losses) + '-' + num(r.ties), num(r.avg_points, 1), num(r.high_score)], '');
+      }), 'Rankings will appear once qualification matches are played.'));
+    } else {
+      box.appendChild(table(['Rank', 'Team', 'Total', 'Driver', 'Prog', 'Attempts D/P'], d.skills.filter(function (r) { return inScope(r.division); }).map(function (r) {
+        return tr([r.rank, teamLabel(r), num(r.total), num(r.driver), num(r.prog), num(r.driver_attempts) + '/' + num(r.prog_attempts)], '');
+      }), 'No skills scores yet.'));
+    }
+    return box;
+  }
+  function teamLabel(r) { var s = el('span'); s.appendChild(teamLink(r.team)); if (r.team_name) s.appendChild(el('span', 'muted', '  ' + r.team_name)); return s; }
+
+  // ── Teams ──────────────────────────────────────────────────────────
+  function teams(list, state) {
+    var box = el('div'), tools = el('div', 'tools');
+    var q = el('input'); q.placeholder = 'Search team, name or school'; q.value = state.q || '';
+    var sort = el('select');
+    [['number', 'Sort: team number'], ['qual', 'Sort: qualification rank'], ['skills', 'Sort: skills rank'], ['org', 'Sort: organisation'], ['division', 'Sort: division']].forEach(function (o) { var op = el('option', null, o[1]); op.value = o[0]; if (state.sort === o[0]) op.selected = true; sort.appendChild(op); });
+    tools.appendChild(q); tools.appendChild(sort); box.appendChild(tools);
+    var grid = el('div', 'grid'); box.appendChild(grid);
+    function key(t) {
+      var by = sort.value;
+      if (by === 'qual') return [t.qual_rank === null, t.qual_rank];
+      if (by === 'skills') return [t.skills_rank === null, t.skills_rank];
+      if (by === 'org') return [!t.organisation, (t.organisation || '').toLowerCase()];
+      if (by === 'division') return [t.division === null, String(t.division)];
+      return [false, t.team_number];
+    }
+    function draw() {
+      state.q = q.value; state.sort = sort.value;
+      var needle = q.value.trim().toLowerCase();
+      var rows = list.filter(function (t) { return !needle || [t.team_number, t.team_name, t.organisation].join(' ').toLowerCase().indexOf(needle) !== -1; });
+      rows.sort(function (a, b) { var x = key(a), y = key(b); return (x[0] - y[0]) || (x[1] < y[1] ? -1 : x[1] > y[1] ? 1 : 0) || (a.team_number < b.team_number ? -1 : 1); });
+      grid.replaceChildren();
+      rows.forEach(function (t) {
+        var a = el('a', 'card teamcard'); a.href = '#team/' + encodeURIComponent(t.team_number);
+        a.appendChild(el('b', null, t.team_number)); if (t.team_name) a.appendChild(el('div', null, t.team_name));
+        if (t.organisation) a.appendChild(el('div', 'muted', t.organisation));
+        a.appendChild(el('div', 'muted', 'Qual #' + num(t.qual_rank) + '  ·  Skills #' + num(t.skills_rank)));
+        grid.appendChild(a);
+      });
+      if (!rows.length) grid.appendChild(el('div', 'empty', 'No teams found.'));
+    }
+    q.addEventListener('input', draw); sort.addEventListener('change', draw); draw();
+    return box;
+  }
+
+  function team(t) {
+    var box = el('div');
+    var back = el('a', null, '← All teams'); back.href = '#teams'; box.appendChild(back);
+    box.appendChild(el('h2', null, t.team_number + (t.team_name ? ' — ' + t.team_name : '')));
+    function kv(title, pairs) {
+      var c = el('div', 'card'); c.appendChild(el('b', null, title)); var dl = el('dl', 'kv'); dl.style.marginTop = '.5rem';
+      pairs.forEach(function (p) { dl.appendChild(el('dt', null, p[0])); dl.appendChild(el('dd', null, p[1] === null || p[1] === undefined || p[1] === '' ? '–' : String(p[1]))); });
+      c.appendChild(dl); return c;
+    }
+    var g = el('div', 'grid');
+    g.appendChild(kv('General', [['Organisation', t.organisation], ['Location', t.location], ['Robot name', t.robot_name], ['Division', t.division], ['Pit', t.pit_location]]));
+    var c = t.current;
+    g.appendChild(kv('Current competition', [['Qualification rank', c.qual_rank], ['Record (W-L-T)', c.wins === null ? null : c.wins + '-' + c.losses + '-' + c.ties], ['Average points', num(c.avg_points, 1)], ['Highest score', c.high_score], ['Skills rank', c.skills_rank], ['Skills total', c.skills_total], ['Driver / Prog', num(c.skills_driver) + ' / ' + num(c.skills_prog)], ['Attempts (D/P)', num(c.skills_driver_attempts) + ' / ' + num(c.skills_prog_attempts)]]));
+    g.appendChild(kv('Season', [['Events attended', t.season.events_attended], ['Awards', t.season.awards], ['Skills rank (season)', t.season.world_skills_rank]]));
+    box.appendChild(g);
+
+    if (t.clips.bot || t.clips.team) {
+      box.appendChild(el('h2', null, 'Clips'));
+      var cl = el('div', 'clips');
+      [['bot', 'Robot 360'], ['team', 'Team']].forEach(function (k) {
+        if (!t.clips[k[0]]) return;
+        var w = el('div', 'card'); w.appendChild(el('b', null, k[1]));
+        var v = el('video'); v.src = t.clips[k[0]]; v.controls = true; v.loop = true; v.muted = true; v.playsInline = true; v.autoplay = true; w.appendChild(v);
+        var dl = el('a', null, 'Download'); dl.href = t.clips[k[0]]; dl.download = t.team_number + '-' + k[0] + '.webm'; dl.style.display = 'block'; w.appendChild(dl);
+        cl.appendChild(w);
+      });
+      box.appendChild(cl);
+    }
+    box.appendChild(el('h2', null, 'Schedule'));
+    box.appendChild(table(['Match', 'Time', 'Red', 'Blue', 'Score'], t.schedule.map(function (m) {
+      var own = function (list, cls) { var s = el('span', cls); list.forEach(function (n, i) { if (i) s.appendChild(document.createTextNode(', ')); s.appendChild(n === t.team_number ? el('b', null, n) : teamLink(n)); }); return s; };
+      return tr([m.label, fmtTime(m.scheduled_at), own(m.red, 'red'), own(m.blue, 'blue'), m.score ? m.score[0] + ' – ' + m.score[1] : ''], '');
+    }), 'No matches scheduled yet.'));
+    if (t.season.previous_rankings.length || t.season.award_list.length) {
+      box.appendChild(el('h2', null, 'Season history'));
+      var hist = el('div', 'card');
+      t.season.previous_rankings.forEach(function (r) {
+        var ev = (r.event && r.event.name) || r.event_name || 'Event';
+        hist.appendChild(el('div', null, ev + (r.rank !== undefined ? '  ·  Qual rank ' + r.rank : '') + (r.wins !== undefined ? '  ·  ' + r.wins + '-' + r.losses + '-' + r.ties : '')));
+      });
+      t.season.award_list.forEach(function (a) { hist.appendChild(el('div', 'muted', 'Award: ' + (a.title || a.name || '') + (a.event && a.event.name ? ' (' + a.event.name + ')' : ''))); });
+      box.appendChild(hist);
+    }
+    return box;
+  }
+
+  // ── Livestreams ────────────────────────────────────────────────────
+  function live(list) {
+    var box = el('div');
+    if (!list.length) return el('div', 'empty', 'No livestreams are configured yet.');
+    list.forEach(function (r) {
+      box.appendChild(el('h2', null, r.name));
+      var f = el('div', 'frame'), i = document.createElement('iframe');
+      i.src = r.stream_url; i.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen'; i.referrerPolicy = 'strict-origin-when-cross-origin'; i.allowFullscreen = true;
+      f.appendChild(i); box.appendChild(f);
+    });
+    return box;
+  }
+
+  // ── Map ────────────────────────────────────────────────────────────
+  function showPop(title, lines) {
+    var pop = document.getElementById('pop'), b = document.getElementById('popbox'); b.replaceChildren(); b.appendChild(el('h2', null, title));
+    if (!lines.length) b.appendChild(el('div', 'muted', 'Nothing listed for this room.'));
+    lines.forEach(function (l) { b.appendChild(typeof l === 'string' ? el('div', null, l) : l); });
+    var close = el('button', null, 'Close'); close.style.marginTop = '1rem'; close.addEventListener('click', function () { pop.style.display = 'none'; }); b.appendChild(close);
+    pop.style.display = 'flex';
+  }
+  document.getElementById('pop').addEventListener('click', function (e) { if (e.target.id === 'pop') e.target.style.display = 'none'; });
+
+  function mapView(o, list) {
+    var m = o.map, box = el('div');
+    if (!m || !m.image_url) return el('div', 'empty', 'The event map has not been published yet.');
+    var zoom = 1, ctl = el('div', 'tools');
+    var inner = el('div', 'inner'), img = el('img'); img.src = m.image_url; img.alt = 'Event map'; inner.appendChild(img);
+    function setZoom(z) { zoom = Math.max(1, Math.min(4, z)); inner.style.width = (zoom * 100) + '%'; }
+    [['−', -0.5], ['+', 0.5]].forEach(function (b) { var x = el('button', null, b[0]); x.addEventListener('click', function () { setZoom(zoom + b[1]); }); ctl.appendChild(x); });
+    ctl.appendChild(el('span', 'muted', 'Zoom in and tap a room for details'));
+    (m.rooms || []).forEach(function (r) {
+      var p = el('button', 'pin', r.name); p.style.left = r.x + '%'; p.style.top = r.y + '%';
+      p.addEventListener('click', function () {
+        var inRoom = list.filter(function (t) { return (r.teams || []).indexOf(t.team_number) !== -1 || (t.pit_location && t.pit_location === r.name); });
+        var lines = [];
+        if (r.description) lines.push(r.description);
+        inRoom.forEach(function (t) { var d = el('div'); d.appendChild(teamLink(t.team_number)); d.appendChild(document.createTextNode(t.team_name ? '  ' + t.team_name : '')); lines.push(d); });
+        showPop(r.name, lines);
+      });
+      inner.appendChild(p);
+    });
+    var wrap = el('div', 'map'); wrap.appendChild(inner); box.appendChild(ctl); box.appendChild(wrap);
+    return box;
+  }
+
+  // ── Router ─────────────────────────────────────────────────────────
+  var evState = { tab: 'agenda', prog: '', div: '' }, teamState = { sort: 'number', q: '' };
+  function render() {
+    clearTimers();
+    var hash = location.hash.replace(/^#/, '') || 'home', parts = hash.split('/'), page = parts[0];
+    document.querySelectorAll('#nav a').forEach(function (a) { a.className = a.getAttribute('href') === '#' + (page === 'team' ? 'teams' : page) ? 'active' : ''; });
+    var load;
+    if (page === 'home') load = get('overview').then(home);
+    else if (page === 'event') load = get('event').then(function (d) { return event(d, evState); });
+    else if (page === 'teams') load = get('teams').then(function (l) { return teams(l, teamState); });
+    else if (page === 'team' && parts[1]) load = get('teams/' + encodeURIComponent(decodeURIComponent(parts[1]))).then(team);
+    else if (page === 'live') load = get('livestreams').then(live);
+    else if (page === 'map') load = Promise.all([get('overview'), get('teams')]).then(function (r) { return mapView(r[0], r[1]); });
+    else load = Promise.resolve(el('div', 'empty', 'Page not found.'));
+    var token = render.token = (render.token || 0) + 1;
+    load.then(function (node) { if (token !== render.token) return; view.replaceChildren(node); window.scrollTo(0, 0); })
+      .catch(function () { if (token === render.token) view.replaceChildren(el('div', 'empty', 'Could not load this page. Retrying…')); });
+    if (page === 'event') timers.push(setInterval(function () { get('event').then(function (d) { if ((location.hash.replace(/^#/, '') || 'home') === 'event') { var y = window.scrollY; view.replaceChildren(event(d, evState)); window.scrollTo(0, y); } }).catch(function () {}); }, 30000));
+  }
+
+  var nav = document.getElementById('nav');
+  NAV.forEach(function (n) { var a = el('a', null, n[1]); a.href = '#' + n[0]; nav.appendChild(a); });
+  var alerts = el('a', null, 'Alerts'); alerts.href = '/notify'; nav.appendChild(alerts);
+  get('overview').then(function (o) {
+    document.title = o.title; document.getElementById('title').textContent = o.title;
+    if (o.presented_by) document.getElementById('foot').textContent = 'Presented by ' + o.presented_by;
+  }).catch(function () {});
+  window.addEventListener('hashchange', render);
+  render();
+})();
+</script>
+</body>
+</html>

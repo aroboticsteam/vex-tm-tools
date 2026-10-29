@@ -6,7 +6,7 @@ import { useUiStore } from '../stores/ui';
 import { ALL_PERMISSIONS } from '../stores/auth';
 import { PageHeader, Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Input, Label } from '../components/ui/Input';
+import { Input, Label, Textarea } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { Toggle } from '../components/ui/Toggle';
 import { CopyButton } from '../components/ui/CopyButton';
@@ -14,6 +14,18 @@ import { CopyButton } from '../components/ui/CopyButton';
 function settingValue(settings: { key: string; value: Record<string, unknown> }[] | undefined, key: string): Record<string, unknown> {
   return settings?.find((s) => s.key === key)?.value ?? {};
 }
+
+const SITE_TEMPLATE = JSON.stringify(
+  {
+    title: 'My Competition',
+    presented_by: '',
+    next_competition: { name: '', date: 'YYYY-MM-DD', teams: [] },
+    sponsors: [{ name: 'Sponsor', url: 'https://example.com', logo_url: '' }],
+    map: { image_url: '', rooms: [{ name: 'Room name', x: 50, y: 50, description: '', teams: [] }] },
+  },
+  null,
+  2,
+);
 
 export function SettingsPage() {
   const { data: settings } = useSettings();
@@ -30,6 +42,9 @@ export function SettingsPage() {
   // knobs (migration e1f2a3b4c5d6). PUT replaces the whole value, so `save()`
   // spreads the existing object to keep keys this page doesn't edit.
   const notifications = settingValue(settings, 'notifications');
+  const site = settingValue(settings, 'site');
+  // The template is only an editing aid; it is never saved unless edited.
+  const initialSiteJson = Object.keys(site).length ? JSON.stringify(site, null, 2) : SITE_TEMPLATE;
 
   const [s3Endpoint, setS3Endpoint] = useState('');
   const [s3PublicEndpoint, setS3PublicEndpoint] = useState('');
@@ -45,6 +60,7 @@ export function SettingsPage() {
   const [ntfyServerUrl, setNtfyServerUrl] = useState('');
   const [ntfyTopic, setNtfyTopic] = useState('');
   const [ntfyEnabled, setNtfyEnabled] = useState(false);
+  const [siteJson, setSiteJson] = useState('');
   const [teamAlerts, setTeamAlerts] = useState(true);
   const [leadMatches, setLeadMatches] = useState(3);
   const [leadMinutes, setLeadMinutes] = useState(15);
@@ -66,6 +82,7 @@ export function SettingsPage() {
     setNtfyServerUrl(String(notifications.server_url ?? ''));
     setNtfyTopic(String(notifications.topic ?? ''));
     setNtfyEnabled(Boolean(notifications.enabled ?? false));
+    setSiteJson(initialSiteJson);
     setTeamAlerts(Boolean(notifications.team_alerts_enabled ?? true));
     setLeadMatches(Number(notifications.lead_matches_x ?? 3));
     setLeadMinutes(Number(notifications.lead_minutes_y ?? 15));
@@ -77,8 +94,20 @@ export function SettingsPage() {
   }, [settings]);
 
   function save() {
+    let siteValue: Record<string, unknown> | null = null;
+    if (siteJson !== initialSiteJson) {
+      try {
+        const parsed: unknown = JSON.parse(siteJson || '{}');
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('must be a JSON object');
+        siteValue = parsed as Record<string, unknown>;
+      } catch (err) {
+        pushToast(`Public site settings: ${err instanceof Error ? err.message : 'invalid JSON'}`, 'error');
+        return;
+      }
+    }
     updateSettings.mutate(
       {
+        ...(siteValue ? { site: { value: siteValue } } : {}),
         s3: {
           value: {
             endpoint_url: s3Endpoint,
@@ -220,6 +249,21 @@ export function SettingsPage() {
               />
             </div>
           </div>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-vmd-textMuted">Public website (/site)</h2>
+          <p className="mb-2 text-xs text-vmd-textSubtle">
+            Title, next competition, sponsors, event map (image + room pins in % coordinates) and the “presented by” line, as JSON.
+          </p>
+          <Textarea
+            className="vmd-code-block w-full text-xs"
+            rows={14}
+            value={siteJson}
+            onChange={(e) => setSiteJson(e.target.value)}
+            disabled={!canEdit}
+            spellCheck={false}
+          />
         </Card>
 
         <Card>
