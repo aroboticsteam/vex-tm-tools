@@ -65,6 +65,7 @@ class AgendaBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     details: str | None = Field(default=None, max_length=2000)
     position: int = Field(default=0, ge=0, le=1000)
+    announce_lead_minutes: int | None = Field(default=None, ge=0, le=240)
 
     @field_validator("scope")
     @classmethod

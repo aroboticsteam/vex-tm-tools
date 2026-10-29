@@ -66,6 +66,10 @@ export function SettingsPage() {
   const [leadMinutes, setLeadMinutes] = useState(15);
   const [scoresEnabled, setScoresEnabled] = useState(true);
   const [scoresExcluded, setScoresExcluded] = useState('F');
+  const [lateMinutes, setLateMinutes] = useState(5);
+  const [agendaEnabled, setAgendaEnabled] = useState(true);
+  const [agendaLead, setAgendaLead] = useState(10);
+  const [eventTimezone, setEventTimezone] = useState('UTC');
 
   useEffect(() => {
     setS3Endpoint(String(s3.endpoint_url ?? ''));
@@ -87,6 +91,10 @@ export function SettingsPage() {
     setLeadMatches(Number(notifications.lead_matches_x ?? 3));
     setLeadMinutes(Number(notifications.lead_minutes_y ?? 15));
     setScoresEnabled(Boolean(notifications.scores_enabled ?? true));
+    setLateMinutes(Number(notifications.late_minutes ?? 5));
+    setAgendaEnabled(Boolean(notifications.agenda_announcements_enabled ?? true));
+    setAgendaLead(Number(notifications.agenda_lead_minutes ?? 10));
+    setEventTimezone(String(notifications.timezone ?? 'UTC'));
     setScoresExcluded(
       Array.isArray(notifications.scores_excluded_rounds) ? notifications.scores_excluded_rounds.join(', ') : 'F',
     );
@@ -131,6 +139,10 @@ export function SettingsPage() {
             lead_matches_x: Math.max(0, Math.min(20, Math.round(leadMatches) || 0)),
             lead_minutes_y: Math.max(0, Math.min(120, Math.round(leadMinutes) || 0)),
             scores_enabled: scoresEnabled,
+            late_minutes: Math.max(0, Math.min(60, Math.round(lateMinutes) || 0)),
+            agenda_announcements_enabled: agendaEnabled,
+            agenda_lead_minutes: Math.max(0, Math.min(240, Math.round(agendaLead) || 0)),
+            timezone: eventTimezone.trim() || 'UTC',
             scores_excluded_rounds: scoresExcluded
               .split(/[\s,;]+/)
               .map((r) => r.trim().toUpperCase())
@@ -297,6 +309,38 @@ export function SettingsPage() {
                   onChange={(e) => setLeadMinutes(Number(e.target.value))}
                   disabled={!canEdit}
                 />
+              </div>
+            </div>
+            <div>
+              <Label>Late warning after N minutes overdue (0 = off)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={60}
+                value={lateMinutes}
+                onChange={(e) => setLateMinutes(Number(e.target.value))}
+                disabled={!canEdit}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label>Announce agenda items (lunch, finals…) to all rooms</Label>
+              <Toggle checked={agendaEnabled} onChange={setAgendaEnabled} disabled={!canEdit} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Default announcement lead (minutes)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={240}
+                  value={agendaLead}
+                  onChange={(e) => setAgendaLead(Number(e.target.value))}
+                  disabled={!canEdit}
+                />
+              </div>
+              <div>
+                <Label>Event timezone (IANA, e.g. Europe/London)</Label>
+                <Input value={eventTimezone} onChange={(e) => setEventTimezone(e.target.value)} disabled={!canEdit} />
               </div>
             </div>
             <div className="flex items-center justify-between">

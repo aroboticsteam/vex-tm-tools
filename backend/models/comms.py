@@ -48,6 +48,9 @@ class AgendaItem(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
     position: Mapped[int] = mapped_column(Integer, server_default="0")
+    #: Minutes before `start_time` to announce this item to the rooms. NULL =
+    #: use the notifications default; 0 = never announce this item.
+    announce_lead_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class StationMessage(Base):

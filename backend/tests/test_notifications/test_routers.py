@@ -112,7 +112,7 @@ async def test_vapid_key_503_when_unconfigured(ctx, monkeypatch):
 async def test_subscribe_update_status_unsubscribe(ctx, session_factory):
     await make_room(ctx)
     resp = await ctx.post("/api/v1/public/push/subscribe", json=team_body(teams=("1234a",)))
-    assert resp.status_code == 200 and resp.json() == {"subscribed": True, "room": "r1", "teams": ["1234A"]}
+    assert resp.status_code == 200 and resp.json() == {"subscribed": True, "room": "r1", "teams": ["1234A"], "categories": None}
 
     # Same endpoint again replaces the team list (no duplicate subscription).
     resp = await ctx.post("/api/v1/public/push/subscribe", json=team_body(teams=("1234A", "5678B")))
@@ -122,7 +122,7 @@ async def test_subscribe_update_status_unsubscribe(ctx, session_factory):
         assert len(subs) == 1 and subs[0].kind == KIND_TEAM and subs[0].room_slug == "r1"
 
     status = await ctx.post("/api/v1/public/push/status", json={"endpoint": VALID_ENDPOINT + "a"})
-    assert status.json() == {"subscribed": True, "room": "r1", "teams": ["1234A", "5678B"]}
+    assert status.json() == {"subscribed": True, "room": "r1", "teams": ["1234A", "5678B"], "categories": None}
     unknown = await ctx.post("/api/v1/public/push/status", json={"endpoint": VALID_ENDPOINT + "other"})
     assert unknown.json()["subscribed"] is False
 
@@ -293,3 +293,14 @@ async def test_ws_room_rejects_unknown_room():
             with client.websocket_connect(f"/ws/room/{slug}"):
                 pass
         assert exc.value.code == 4003
+
+
+async def test_subscribe_with_categories_round_trips_and_validates(ctx, session_factory):
+    await make_room(ctx)
+    resp = await ctx.post("/api/v1/public/push/subscribe", json={**team_body(), "categories": ["score", "late", "late"]})
+    assert resp.status_code == 200 and resp.json()["categories"] == ["late", "score"]
+    status = await ctx.post("/api/v1/public/push/status", json={"endpoint": team_body()["endpoint"]})
+    assert status.json()["categories"] == ["late", "score"]
+
+    bad = await ctx.post("/api/v1/public/push/subscribe", json={**team_body(), "categories": ["spam"]})
+    assert bad.status_code == 422
