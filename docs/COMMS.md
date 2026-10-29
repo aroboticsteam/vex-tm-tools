@@ -12,7 +12,7 @@ Two independent pieces:
 1. In **Comms → Stations**, add one station per iPad with a role:
    - `emcee` – messages, next-match countdown (+ upcoming teams and stats), day and finals agenda
    - `floor_manager` / `camera` – messages, day and finals agenda
-2. Copy the station link (`/station/<name>`) onto the iPad and *Add to Home
+2. Copy the station link (`/station/<name>`) onto the iPad (use **Secure** first to make it a private link, and the key icon to add a PIN; **Rotate** revokes a link that leaked) and *Add to Home
    Screen* (full-screen, no browser bars). The link is the only credential,
    like a room link — use a hard-to-guess name.
 3. Each iPad can type back to the desk; replies show under *Messages from
@@ -36,3 +36,10 @@ the Mumble client on each iPad (or a compatible app such as Mumla/Mumble for iOS
 and connect with the server password. Use channels such as *Desk*, *Emcees*, *Floor*.
 
 > Not verified: the Mumble manifest has not been run in a real cluster, and push-to-talk/headset behaviour on iPad is untested.
+
+
+## Timers, presence and agenda
+
+- **Timer** card: start a countdown (green → amber → red → flashing overtime) or a count-up on the selected stations; pause, resume, ±1 min, stop. All iPads show the same time (server clock).
+- Each station row shows a green dot while its page is open, or when it was last seen.
+- Agenda rows can be dragged to reorder; **Import** takes pasted lines like `10:30-11:00 Opening ceremony | details` (checked first, all-or-nothing). Items announce themselves to the rooms ahead of time (see Settings → Team alerts).
