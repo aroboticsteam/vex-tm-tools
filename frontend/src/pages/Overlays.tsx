@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import { useDeleteOverlay, useOverlayPreview, useOverlays } from '../api/overlays';
+import { useDeleteOverlay, useOverlayPreview, useOverlays, useSpotlightTeam } from '../api/overlays';
+import { useTeams } from '../api/teams';
+import { useUiStore } from '../stores/ui';
+import { Input } from '../components/ui/Input';
 import { usePermission } from '../hooks/usePermission';
 import { PageHeader, Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -89,6 +92,8 @@ export function OverlaysPage() {
                 <CopyButton value={url} />
               </div>
 
+              {canEdit && <SpotlightControls entityId={overlay.entity_id} />}
+
               {previewing === overlay.entity_id && (
                 <div className="mt-3 rounded-lg border border-vmd-border bg-black p-4">
                   {preview?.teams && preview.teams.length > 0 ? (
@@ -115,6 +120,49 @@ export function OverlaysPage() {
       </div>
 
       <OverlayEditorModal open={modalOpen} onClose={() => setModalOpen(false)} editing={editing} />
+    </div>
+  );
+}
+
+/** Finals "team spotlight" operator control: pick a team to put on the
+ * overlay (robot 360 + info + team clip), or return to the match view. */
+function SpotlightControls({ entityId }: { entityId: string }) {
+  const { data: teams = [] } = useTeams();
+  const spotlight = useSpotlightTeam();
+  const pushToast = useUiStore((s) => s.pushToast);
+  const [team, setTeam] = useState('');
+  const listId = `spotlight-teams-${entityId}`;
+  const send = (value: string | null) =>
+    spotlight.mutate(
+      { entityId, team: value },
+      {
+        onSuccess: () => pushToast(value ? `Spotlighting ${value}` : 'Back to the match view', 'success'),
+        onError: (err) => pushToast(err instanceof Error ? err.message : 'Request failed', 'error'),
+      },
+    );
+  const clean = team.trim().toUpperCase();
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-vmd-border pt-3">
+      <span className="text-xs font-semibold uppercase tracking-wide text-vmd-textMuted">Finals spotlight</span>
+      <Input
+        className="max-w-[10rem]"
+        placeholder="Team, e.g. 1234A"
+        aria-label={`Spotlight team for ${entityId}`}
+        list={listId}
+        value={team}
+        onChange={(e) => setTeam(e.target.value)}
+      />
+      <datalist id={listId}>
+        {teams.map((t) => (
+          <option key={t.team_number} value={t.team_number} />
+        ))}
+      </datalist>
+      <Button variant="primary" disabled={!clean || spotlight.isPending} onClick={() => send(clean)}>
+        Show team
+      </Button>
+      <Button variant="secondary" disabled={spotlight.isPending} onClick={() => send(null)}>
+        Back to match view
+      </Button>
     </div>
   );
 }

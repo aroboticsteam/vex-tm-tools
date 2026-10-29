@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.core.audit import log_action
 from backend.core.dependencies import CurrentPrincipal, get_db, require_permission
 from backend.core.exceptions import ProcessingError
+from backend.models.settings import SystemSetting
 from backend.models.team import TeamProfile
 from backend.models.team_clip import TeamClip
 from backend.modules.media import s3
@@ -230,4 +231,8 @@ async def public_overlay_teams(teams: str, db: Annotated[AsyncSession, Depends(g
         p.team_number: p for p in (await db.execute(select(TeamProfile).where(TeamProfile.team_number.in_(numbers)))).scalars()
     }
     urls = await clip_urls_for(db, numbers, profiles)
-    return OverlayTeamsResponse(teams={n: _overlay_team(n, profiles.get(n), urls[n]) for n in numbers})
+    setting = await db.get(SystemSetting, "overlay")
+    show_robot_name = bool(isinstance(setting.value, dict) and setting.value.get("show_robot_name")) if setting else False
+    return OverlayTeamsResponse(
+        teams={n: _overlay_team(n, profiles.get(n), urls[n]) for n in numbers}, show_robot_name=show_robot_name
+    )

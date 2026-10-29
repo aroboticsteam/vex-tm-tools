@@ -205,3 +205,29 @@ async def test_upload_requires_video_upload_permission(team, s3_mock):
             assert (await client.get(f"/api/v1/teams/{team}/clips")).status_code == 200
     finally:
         app.dependency_overrides.pop(get_current_principal, None)
+
+
+async def test_public_overlay_robot_name_flag_follows_setting(admin, team, factory, s3_mock):
+    from backend.models.settings import SystemSetting
+
+    async with factory() as session:
+        session.add(TeamProfile(team_number=team, robot_name="Sparky"))
+        await session.commit()
+    try:
+        body = (await admin.get(f"/api/v1/public/overlay/teams?teams={team}")).json()
+        assert body["show_robot_name"] is False and body["teams"][team]["robot_name"] == "Sparky"
+
+        async with factory() as session:
+            row = await session.get(SystemSetting, "overlay")
+            if row is None:
+                session.add(SystemSetting(key="overlay", value={"show_robot_name": True}))
+            else:
+                row.value = {"show_robot_name": True}
+            await session.commit()
+        assert (await admin.get(f"/api/v1/public/overlay/teams?teams={team}")).json()["show_robot_name"] is True
+    finally:
+        async with factory() as session:
+            row = await session.get(SystemSetting, "overlay")
+            if row is not None:
+                await session.delete(row)
+                await session.commit()

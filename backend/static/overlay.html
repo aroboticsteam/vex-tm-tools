@@ -49,6 +49,7 @@
   .info .text { min-width: 0; }
   .info .number { font-size: 44px; font-weight: 800; line-height: 1.05; letter-spacing: 0.03em; }
   .info .name { font-size: 28px; font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .info .robot { font-size: 22px; font-style: italic; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .info .meta { font-size: 22px; line-height: 1.25; color: rgba(255,255,255,0.88); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .info.compact .number { font-size: 38px; } .info.compact .name { font-size: 24px; }
 
@@ -122,7 +123,8 @@
       country: info.country || null,
       rank: (info.qual_rank != null ? info.qual_rank : obj.rank) || null,
       bot_url: info.bot_url || obj.video_url || null,
-      team_url: info.team_url || null
+      team_url: info.team_url || null,
+      robot_name: info.robot_name || null
     };
   }
 
@@ -152,6 +154,7 @@
     var text = el("div", "text");
     text.appendChild(el("div", "number", team.team_number));
     if (team.team_name) text.appendChild(el("div", "name", team.team_name));
+    if (showRobotName && team.robot_name) text.appendChild(el("div", "robot", "🤖 " + team.robot_name));
     if (!opts.minimal) {
       if (team.organisation) text.appendChild(el("div", "meta", team.organisation));
       var loc = [flagFor(team.country), team.location].filter(Boolean).join(" ");
@@ -161,12 +164,17 @@
     return box;
   }
 
+  var showRobotName = false; // set from the feed (server opt-in) or ?robot_name=1
+
   function fetchFeed(teamNumbers) {
     if (!teamNumbers.length) return Promise.resolve({});
     var qs = encodeURIComponent(teamNumbers.join(","));
     return fetch("/api/v1/public/overlay/teams?teams=" + qs, { credentials: "same-origin" })
       .then(function (resp) { if (!resp.ok) throw new Error("overlay feed " + resp.status); return resp.json(); })
-      .then(function (data) { return (data && data.teams) || {}; })
+      .then(function (data) {
+        showRobotName = !!(data && data.show_robot_name) || query.get("robot_name") === "1";
+        return (data && data.teams) || {};
+      })
       .catch(function () { return {}; }); // no feed -> placeholders, never throws
   }
 

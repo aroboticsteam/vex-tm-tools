@@ -43,6 +43,7 @@ export function SettingsPage() {
   // spreads the existing object to keep keys this page doesn't edit.
   const notifications = settingValue(settings, 'notifications');
   const site = settingValue(settings, 'site');
+  const overlaySettings = settingValue(settings, 'overlay');
   // The template is only an editing aid; it is never saved unless edited.
   const initialSiteJson = Object.keys(site).length ? JSON.stringify(site, null, 2) : SITE_TEMPLATE;
 
@@ -66,6 +67,7 @@ export function SettingsPage() {
   const [leadMinutes, setLeadMinutes] = useState(15);
   const [scoresEnabled, setScoresEnabled] = useState(true);
   const [scoresExcluded, setScoresExcluded] = useState('F');
+  const [showRobotName, setShowRobotName] = useState(false);
   const [lateMinutes, setLateMinutes] = useState(5);
   const [agendaEnabled, setAgendaEnabled] = useState(true);
   const [agendaLead, setAgendaLead] = useState(10);
@@ -91,6 +93,7 @@ export function SettingsPage() {
     setLeadMatches(Number(notifications.lead_matches_x ?? 3));
     setLeadMinutes(Number(notifications.lead_minutes_y ?? 15));
     setScoresEnabled(Boolean(notifications.scores_enabled ?? true));
+    setShowRobotName(Boolean(overlaySettings.show_robot_name ?? false));
     setLateMinutes(Number(notifications.late_minutes ?? 5));
     setAgendaEnabled(Boolean(notifications.agenda_announcements_enabled ?? true));
     setAgendaLead(Number(notifications.agenda_lead_minutes ?? 10));
@@ -129,6 +132,7 @@ export function SettingsPage() {
         robot_events_api: { value: { token: reToken } },
         predictor: { value: { high_potential_threshold_pct: threshold } },
         chroma_key_defaults: { value: { colour: ckColour, similarity: ckSimilarity, blend: ckBlend } },
+        overlay: { value: { ...overlaySettings, show_robot_name: showRobotName } },
         notifications: {
           value: {
             ...notifications,
@@ -276,6 +280,18 @@ export function SettingsPage() {
             disabled={!canEdit}
             spellCheck={false}
           />
+        </Card>
+
+        <Card>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-vmd-textMuted">Stream overlay</h2>
+          <div className="flex items-center justify-between">
+            <Label>Show robot names on the overlay</Label>
+            <Toggle checked={showRobotName} onChange={setShowRobotName} disabled={!canEdit} />
+          </div>
+          <p className="mt-2 text-xs text-vmd-textSubtle">
+            Off by default: robot names need VEX Events approval before they go on stream. Overlay pages also accept{' '}
+            <code>?robot_name=1</code> to force it for a single browser source.
+          </p>
         </Card>
 
         <Card>

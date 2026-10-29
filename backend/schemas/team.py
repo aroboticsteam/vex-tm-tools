@@ -85,3 +85,6 @@ class OverlayTeam(BaseModel):
 
 class OverlayTeamsResponse(BaseModel):
     teams: dict[str, OverlayTeam]
+    #: Opt-in (system setting `overlay.show_robot_name`): robot names need
+    #: VEX Events approval before they are put on stream.
+    show_robot_name: bool = False

@@ -43,8 +43,11 @@ import asyncio
 import contextlib
 import fnmatch
 import logging
+import ipaddress
 import re
+import time
 import uuid
+from urllib.parse import urlparse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -611,6 +614,10 @@ class AutomationEngine:
                     ok, err = await self._do_script_action(action, context)
                 elif "service" in action:
                     ok, err = await self._do_service_action(action, context)
+                elif "spotlight" in action:
+                    ok, err = await self._do_spotlight_action(action, context)
+                elif "http" in action:
+                    ok, err = await self._do_http_action(action, context)
                 else:
                     ok, err = False, f"Unknown action type at index {idx}: {action!r}"
                 executed += 1
@@ -685,6 +692,75 @@ class AutomationEngine:
 
         ok, err, _, _, _ = await self._execute_action_chain(script.actions, sub_context)
         return ok, err
+
+    async def _do_spotlight_action(self, action: dict[str, Any], context: dict[str, Any]) -> tuple[bool, str | None]:
+        """`spotlight: {team: "1234A", overlay: "overlay-main"}` — shows one
+        team on the finals overlay (`team: null`/empty returns to the match
+        view). Omitting `overlay` targets every overlay instance."""
+        from backend.models.overlay import OverlayInstance
+
+        spec = render_value(action["spotlight"], context)
+        if not isinstance(spec, dict):
+            return False, "spotlight action requires a mapping with 'team' (and optionally 'overlay')"
+        team = spec.get("team")
+        team = str(team).strip().upper() if team not in (None, "", "none", "None") else None
+        if team is not None and not re.fullmatch(r"[A-Z0-9]{1,20}", team):
+            return False, f"Invalid team number {team!r}"
+        wanted = spec.get("overlay")
+        async with self._session_factory() as session:
+            stmt = select(OverlayInstance)
+            if wanted:
+                stmt = stmt.where(OverlayInstance.entity_id == str(wanted))
+            rows = list((await session.execute(stmt)).scalars())
+        if not rows:
+            return False, f"No overlay found{f' for {wanted!r}' if wanted else ''}"
+        for row in rows:
+            event = EventBusMessage(
+                entity_id=row.entity_id,
+                entity_tags=list(row.tags or []),
+                type="overlay_show_team",
+                timestamp=time.time(),
+                payload={"team": team},
+            )
+            await self._redis.publish("qecomp:events", event.model_dump_json())
+        return True, None
+
+    async def _do_http_action(self, action: dict[str, Any], context: dict[str, Any]) -> tuple[bool, str | None]:
+        """`http: {url, method: POST, json: {...}, headers: {...}, timeout: 5}`
+        — fires a webhook. Only http(s) to a non-link-local host."""
+        import httpx
+
+        spec = render_value(action["http"], context)
+        if isinstance(spec, str):
+            spec = {"url": spec}
+        if not isinstance(spec, dict) or not spec.get("url"):
+            return False, "http action requires a 'url'"
+        url = str(spec["url"])
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return False, "http action only supports http(s) URLs"
+        try:
+            if ipaddress.ip_address(parsed.hostname).is_link_local:
+                return False, "http action may not target link-local addresses"
+        except ValueError:
+            pass  # a hostname, not an IP literal
+        method = str(spec.get("method", "POST")).upper()
+        if method not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
+            return False, f"Unsupported http method {method!r}"
+        try:
+            timeout = max(0.5, min(float(spec.get("timeout", 5)), 15.0))
+        except (TypeError, ValueError):
+            timeout = 5.0
+        headers = spec.get("headers") if isinstance(spec.get("headers"), dict) else None
+        body = spec.get("json")
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+                resp = await client.request(method, url, json=body if body is not None else None, headers=headers)
+        except httpx.HTTPError as exc:
+            return False, f"HTTP request failed: {exc}"
+        if resp.status_code >= 400:
+            return False, f"HTTP {resp.status_code} from {parsed.hostname}"
+        return True, None
 
     async def _do_service_action(self, action: dict[str, Any], context: dict[str, Any]) -> tuple[bool, str | None]:
         service_full = render_value(action["service"], context)

@@ -50,3 +50,11 @@ export function useOverlayPreview(entityId: string | null) {
     refetchInterval: 10_000,
   });
 }
+
+/** Finals spotlight: show one team on the overlay (`null` returns to the match view). */
+export function useSpotlightTeam() {
+  return useMutation({
+    mutationFn: ({ entityId, team }: { entityId: string; team: string | null }) =>
+      apiFetch<void>(`/api/v1/overlays/${encodeURIComponent(entityId)}/show-team`, { method: 'POST', body: { team } }),
+  });
+}

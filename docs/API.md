@@ -216,6 +216,11 @@ or open `/docs` for the full interactive Swagger UI.
 | PUT/DELETE | `/api/v1/button-pages/buttons/{button_id}` | Update/delete a button (`buttons:manage`). |
 | POST | `/api/v1/button-pages/buttons/{button_id}/press` | Run the button's actions on the leader's automation engine (`buttons:press`). |
 
+Besides `service`, `script`, `delay`, `condition` and `repeat`, action chains (buttons, scripts, automations) accept:
+
+- `spotlight: {team: "1234A", overlay: "overlay-main"}` — show one team on the finals overlay; `team: null` returns to the match view; omit `overlay` to target every overlay. Templates work (`team: "{{ trigger.payload.team }}"`).
+- `http: {url, method: POST, json: {...}, headers: {...}, timeout: 5}` — fire a webhook. http(s) only, link-local addresses refused, redirects not followed, failures (status >= 400, network) fail the action.
+
 
 ## Team clips & overlay feed (issues #1/#12)
 
@@ -262,3 +267,5 @@ Unauthenticated, display-safe. The page itself is at `/site` (hash-routed: `#eve
 
 `late_minutes` (default 5, 0 = off): warn a match's teams when it is this overdue and the field has not reached it.
 `agenda_announcements_enabled` / `agenda_lead_minutes` (default 10) / `timezone` (IANA, default `UTC`): announce agenda items to every room and to subscribers who kept the `announcement` category.
+
+The `overlay` system setting (`{"show_robot_name": true}`) makes `GET /api/v1/public/overlay/teams` return `show_robot_name: true`, which makes the overlay print each team's robot name. Opt-in because robot names need VEX Events approval; `?robot_name=1` on the overlay URL forces it for one browser source.
