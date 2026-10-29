@@ -82,6 +82,44 @@ def _tm_token_key(entity_id: str) -> str:
     return f"qecomp:tm:{entity_id}:token"
 
 
+
+def _team_numbers_in(entry: Any) -> set[str]:
+    """Every team number an entry from a TM rankings/skills list refers to.
+    Handles the documented shapes (`alliance.teams[].number` for rankings,
+    top-level `number` for skills) and the older `team`/`team.number` ones."""
+    if not isinstance(entry, dict):
+        return set()
+    found: set[str] = set()
+    if entry.get("number") not in (None, ""):
+        found.add(str(entry["number"]))
+    team = entry.get("team")
+    if isinstance(team, dict) and team.get("number") not in (None, ""):
+        found.add(str(team["number"]))
+    elif isinstance(team, str) and team:
+        found.add(team)
+    alliance = entry.get("alliance")
+    if isinstance(alliance, dict):
+        for t in alliance.get("teams") or []:
+            if isinstance(t, dict) and t.get("number") not in (None, ""):
+                found.add(str(t["number"]))
+    return found
+
+
+def _team_location(team_row: dict[str, Any]) -> str | None:
+    """`location` if TM provides it, else "City, State, Country" from the
+    documented separate fields."""
+    if team_row.get("location"):
+        return str(team_row["location"])
+    parts = [str(team_row[k]) for k in ("city", "state", "country") if team_row.get(k)]
+    return ", ".join(parts) or None
+
+
+def _country_from_location(location: Any) -> str | None:
+    if isinstance(location, str) and "," in location:
+        return location.rsplit(",", 1)[1].strip() or None
+    return None
+
+
 class Scraper:
     """Subscribes to `qecomp:events`, auto-creates/enriches `team_profiles`
     rows from TM + Robot Events data, and caches the result in Redis."""
@@ -349,9 +387,10 @@ class Scraper:
             if isinstance(division, dict):
                 division_id = division.get("id")
             else:
-                division_id = team_row.get("divisionId") or division
+                # TM's documented `/api/teams` row carries `divId`.
+                division_id = team_row.get("divId") or team_row.get("divisionId") or division
 
-        result: dict[str, Any] = {"team_row": team_row or {}}
+        result: dict[str, Any] = {"team_row": team_row or {}, "division_id": division_id}
 
         try:
             result["event"] = (
@@ -374,12 +413,7 @@ class Scraper:
                     or []
                 )
                 result["ranking"] = next(
-                    (
-                        r
-                        for r in rankings
-                        if str(r.get("team", {}).get("number", r.get("number")))
-                        == str(team_number)
-                    ),
+                    (r for r in rankings if str(team_number) in _team_numbers_in(r)),
                     None,
                 )
             except Exception:
@@ -406,11 +440,7 @@ class Scraper:
                 await self._tm_get(base_url, token, api_key, "/api/skills", envelope_key="skillsRankings")
                 or []
             )
-            result["skills"] = [
-                s
-                for s in skills
-                if str(s.get("team", {}).get("number", s.get("number"))) == str(team_number)
-            ]
+            result["skills"] = [s for s in skills if str(team_number) in _team_numbers_in(s)]
         except Exception:
             logger.exception("Failed to fetch skills from %s", tm_entity_id)
             result["skills"] = []
@@ -635,8 +665,12 @@ class Scraper:
             # (plan §8's DDL only defines bio/robot_name/etc.) — kept in the
             # flexible cached_stats JSONB rather than silently discarded.
             "team_name": team_row.get("teamName") or team_row.get("team_name") or team_row.get("name"),
-            "organisation": team_row.get("organization") or team_row.get("organisation"),
-            "location": team_row.get("location"),
+            # TM's documented fields are `school`, `city`/`state`/`country`
+            # (which "will likely be combined into `location`").
+            "organisation": team_row.get("organization") or team_row.get("organisation") or team_row.get("school"),
+            "location": _team_location(team_row),
+            "country": team_row.get("country") or _country_from_location(team_row.get("location")),
+            "division_id": tm_data.get("division_id"),
         }
 
         return {

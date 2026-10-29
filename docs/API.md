@@ -244,3 +244,16 @@ Staff (`comms:read` / `comms:send` / `comms:manage`):
 | DELETE | `/api/v1/comms/inbox` | Clear read messages. |
 
 Public (the station slug is the credential): `GET /api/v1/public/stations/{slug}`, `.../agenda`, `.../next-match` (emcees only), `POST .../messages`; page `GET /station/{slug}`; socket `/ws/station/{slug}`.
+
+
+## Public website data (issue #10)
+
+Unauthenticated, display-safe. The page itself is at `/site` (hash-routed: `#event`, `#teams`, `#team/<number>`, `#live`, `#map`). Its content settings (title, next competition, sponsors, map image + room pins, "presented by") are the `site` system setting, edited as JSON under Settings → Public website.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/public/site/overview` | Title, event name, headline stats, next competition, sponsors, map. |
+| GET | `/api/v1/public/site/event` | Matches (from the cached TM schedule), qualification and skills rankings, agenda, per-division programme (IQ/VRC, inferred from alliance size). |
+| GET | `/api/v1/public/site/teams` | Team cards (name, organisation, location, division, ranks, pit). |
+| GET | `/api/v1/public/site/teams/{number}` | Profile: current stats, season history, schedule, robot 360 / team clips. Never includes staff notes. |
+| GET | `/api/v1/public/site/livestreams` | Rooms that have a stream URL. |

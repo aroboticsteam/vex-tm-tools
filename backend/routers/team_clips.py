@@ -174,8 +174,8 @@ def _overlay_team(number: str, profile: TeamProfile | None, urls: dict[str, str 
     stats: dict[str, Any] = (profile.cached_stats if profile and isinstance(profile.cached_stats, dict) else {}) or {}
     ranking = stats.get("ranking")
     location = stats.get("location")
-    country = None
-    if isinstance(location, str) and "," in location:
+    country = stats.get("country") if isinstance(stats.get("country"), str) else None
+    if country is None and isinstance(location, str) and "," in location:
         country = location.rsplit(",", 1)[1].strip() or None
     return OverlayTeam(
         team_number=number,
@@ -191,6 +191,35 @@ def _overlay_team(number: str, profile: TeamProfile | None, urls: dict[str, str 
     )
 
 
+async def clip_urls_for(
+    db: AsyncSession, numbers: list[str], profiles: dict[str, TeamProfile]
+) -> dict[str, dict[str, str | None]]:
+    """Presigned processed-clip URLs per team and kind ("bot", "team"); a
+    missing clip (or failed presign) is None. The bot clip falls back to the
+    legacy single "robot 360" upload."""
+    clips: dict[tuple[str, str], TeamClip] = {
+        (c.team_number, c.kind): c
+        for c in (await db.execute(select(TeamClip).where(TeamClip.team_number.in_(numbers)))).scalars()
+    }
+    out: dict[str, dict[str, str | None]] = {}
+    for number in numbers:
+        urls: dict[str, str | None] = {}
+        for kind in s3.CLIP_KINDS:
+            clip = clips.get((number, kind))
+            key = clip.processed_s3_key if clip and clip.status == "DONE" else None
+            if key is None and kind == "bot":
+                profile = profiles.get(number)
+                if profile and profile.video_360_s3_key and profile.video_processing_status == "DONE":
+                    key = profile.video_360_s3_key
+            try:
+                urls[kind] = await s3.generate_presigned_url(key) if key else None
+            except ProcessingError:
+                logger.exception("Failed to presign %s clip for team %s", kind, number)
+                urls[kind] = None
+        out[number] = urls
+    return out
+
+
 @router.get("/api/v1/public/overlay/teams", response_model=OverlayTeamsResponse)
 async def public_overlay_teams(teams: str, db: Annotated[AsyncSession, Depends(get_db)]) -> OverlayTeamsResponse:
     """Display info + presigned clip URLs for `?teams=1234A,5678B` (max 12)."""
@@ -200,25 +229,5 @@ async def public_overlay_teams(teams: str, db: Annotated[AsyncSession, Depends(g
     profiles = {
         p.team_number: p for p in (await db.execute(select(TeamProfile).where(TeamProfile.team_number.in_(numbers)))).scalars()
     }
-    clips: dict[tuple[str, str], TeamClip] = {
-        (c.team_number, c.kind): c
-        for c in (await db.execute(select(TeamClip).where(TeamClip.team_number.in_(numbers)))).scalars()
-    }
-    out: dict[str, OverlayTeam] = {}
-    for number in numbers:
-        urls: dict[str, str | None] = {}
-        for kind in s3.CLIP_KINDS:
-            clip = clips.get((number, kind))
-            key = clip.processed_s3_key if clip and clip.status == "DONE" else None
-            if key is None and kind == "bot":
-                # Fall back to the legacy single "robot 360" upload.
-                profile = profiles.get(number)
-                if profile and profile.video_360_s3_key and profile.video_processing_status == "DONE":
-                    key = profile.video_360_s3_key
-            try:
-                urls[kind] = await s3.generate_presigned_url(key) if key else None
-            except ProcessingError:
-                logger.exception("Failed to presign %s clip for team %s", kind, number)
-                urls[kind] = None
-        out[number] = _overlay_team(number, profiles.get(number), urls)
-    return OverlayTeamsResponse(teams=out)
+    urls = await clip_urls_for(db, numbers, profiles)
+    return OverlayTeamsResponse(teams={n: _overlay_team(n, profiles.get(n), urls[n]) for n in numbers})
