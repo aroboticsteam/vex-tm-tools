@@ -243,7 +243,7 @@ Staff (`comms:read` / `comms:send` / `comms:manage`):
 | GET/POST | `/api/v1/comms/stations` | List / create stations (`manage` to write). |
 | PUT/DELETE | `/api/v1/comms/stations/{slug}` | Update / delete a station. |
 | GET/POST, PUT/DELETE | `/api/v1/comms/presets[/{id}]` | Canned messages (optionally per role, optionally flashing). |
-| GET/POST, PUT/DELETE | `/api/v1/comms/agenda[/{id}]` | Day / finals agenda items. `announce_lead_minutes` (null = default, 0 = never) schedules an automatic room + push announcement before `start_time` (event timezone set in the `notifications` setting). |
+| GET/POST, PUT/DELETE | `/api/v1/comms/agenda[/{id}]` | Day / finals agenda items (ordered by `position`; a new item without one slots in by start time). `announce_lead_minutes` (null = default, 0 = never) schedules an automatic room + push announcement before `start_time` (event timezone set in the `notifications` setting). |
 | POST | `/api/v1/comms/send` | Send text (optional flash) to stations, roles or everyone. |
 | POST | `/api/v1/comms/screen` | Push a screen (`messages`, `countdown`, `agenda_day`, `agenda_finals`); stations whose role can't show it are skipped. |
 | GET | `/api/v1/comms/inbox` | Messages typed on iPads (`?unacknowledged=true`). |
@@ -271,3 +271,19 @@ Unauthenticated, display-safe. The page itself is at `/site` (hash-routed: `#eve
 `agenda_announcements_enabled` / `agenda_lead_minutes` (default 10) / `timezone` (IANA, default `UTC`): announce agenda items to every room and to subscribers who kept the `announcement` category.
 
 The `overlay` system setting (`{"show_robot_name": true}`) makes `GET /api/v1/public/overlay/teams` return `show_robot_name: true`, which makes the overlay print each team's robot name. Opt-in because robot names need VEX Events approval; `?robot_name=1` on the overlay URL forces it for one browser source.
+
+### Comms: timers, secured stations, presence, agenda tools (issue #27)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/v1/comms/timer` | Stagetimer-style cue on stations (`comms:send`): `action` = `start` (`mode` countdown/countup, `duration_seconds`, `label`, `warn_seconds` amber, `critical_seconds` red), `pause`, `resume`, `adjust` (`adjust_seconds` ±), `stop`. Runs on the server clock; stations show green → amber → red → flashing overtime. |
+| POST | `/api/v1/comms/stations/{slug}/rotate-link` | Secures the station (if needed) and issues a new key; old links/tokens stop working (`comms:manage`). Returns `{access_key, path}`. |
+| GET | `/api/v1/comms/stations/{slug}/link` | The current private link (`comms:manage`). |
+| PUT | `/api/v1/comms/stations/{slug}/pin` | `{"pin": "4821"}` (4-8 digits) sets a PIN on top of the key; `null` clears it. |
+| DELETE | `/api/v1/comms/stations/{slug}/link` | Removes key and PIN (the plain link works again). |
+| PUT | `/api/v1/comms/agenda/order` | `{scope, ids}` drag-and-drop order. |
+| POST | `/api/v1/comms/agenda/import` | `{scope, text, replace, dry_run}`; lines `HH:MM[-HH:MM] Title [\| details]`, all-or-nothing with per-line errors. |
+
+`GET /api/v1/comms/stations` also reports `secured`, `has_pin`, `connected` and `last_seen` (presence: each open page pings its websocket every ~25 s).
+
+Secured stations: the page link is `/station/{slug}?k=<key>`; every public call needs the key (`X-Station-Key` header or `k`), plus — when a PIN is set — an unlock token (`X-Station-Token` or `t`) from `POST /api/v1/public/stations/{slug}/unlock {pin}` (valid 12 h, revoked by any key/PIN change; 10 wrong PINs lock the station for 10 minutes). 401 `detail` is `key` or `pin` so the page knows what to ask for.

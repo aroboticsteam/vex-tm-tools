@@ -37,6 +37,18 @@
   .team { border-radius: 12px; padding: .8rem 1rem; background: #1d2230; border-left: 8px solid #3b6fe0; }
   .team.red { border-left-color: #e63946; } .team.blue { border-left-color: #457bff; }
   .team .num { font-size: 1.6rem; font-weight: 800; } .team .meta { color: #aeb6c8; font-size: 1rem; }
+  .timer { text-align: center; padding-top: 1.5rem; }
+  .timer .tlabel { font-size: 2rem; color: #aeb6c8; min-height: 2.4rem; }
+  .timer .tclock { font-size: min(26vw, 20rem); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.05; border-radius: 24px; padding: .1em .25em; display: inline-block; }
+  .timer .tclock.green { color: #3ddc84; } .timer .tclock.amber { color: #ffb020; } .timer .tclock.red { color: #ff4d4d; }
+  .timer .tclock.neutral { color: #7fb0ff; }
+  .timer .tclock.overtime { color: #fff; background: #c1121f; animation: flash 0.8s steps(2, jump-none) infinite; }
+  .timer .tstate { font-size: 1.4rem; color: #8e97ad; margin-top: .5rem; }
+  .gate { max-width: 26rem; margin: 3rem auto; text-align: center; }
+  .gate p { font-size: 1.2rem; color: #aeb6c8; }
+  .gate input { width: 100%; font-size: 2rem; text-align: center; letter-spacing: .4em; padding: .7rem; border-radius: 12px; border: 1px solid #2c3347; background: #161a23; color: #eceff4; }
+  .gate button { margin-top: .8rem; width: 100%; background: #3b6fe0; color: #fff; border: 0; border-radius: 10px; padding: .9rem; font-size: 1.2rem; }
+  .gate .err { color: #ff6b6b; min-height: 1.4rem; }
   .agenda .row { display: flex; gap: 1rem; padding: .7rem 1rem; border-radius: 10px; font-size: 1.15rem; color: #aeb6c8; }
   .agenda .row .t { width: 11rem; flex: none; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .agenda .row.current { background: #1f2f55; color: #fff; font-weight: 800; font-size: 1.5rem; }
@@ -50,13 +62,59 @@
 <script>
 (function () {
   var SLUG = "__STATION_SLUG__";
-  var LABELS = { messages: 'Messages', countdown: 'Next match', agenda_day: 'Day agenda', agenda_finals: 'Finals agenda' };
-  var state = { station: null, screen: 'messages', messages: [], flashing: null, next: null, agenda: {} };
+  var LABELS = { messages: 'Messages', countdown: 'Next match', timer: 'Timer', agenda_day: 'Day agenda', agenda_finals: 'Finals agenda' };
+  var state = { station: null, screen: 'messages', messages: [], flashing: null, next: null, agenda: {}, timer: null, offset: 0, blocked: false };
+  // Secured stations: the link carries ?k=<key>; a PIN is exchanged for a token kept for this tab/session.
+  var KEY = new URLSearchParams(location.search).get('k') || '';
+  var TOKEN_STORE = 'station-token-' + SLUG;
+  var TOKEN = ''; try { TOKEN = sessionStorage.getItem(TOKEN_STORE) || ''; } catch (e) {}
   var viewEl = document.getElementById('view'), tabsEl = document.getElementById('tabs'), statusEl = document.getElementById('status');
   var timer = null;
 
   function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined && text !== null) n.textContent = text; return n; }
-  function api(path, opts) { return fetch('/api/v1/public/stations/' + encodeURIComponent(SLUG) + path, opts).then(function (r) { if (!r.ok) throw new Error(r.status); return r.status === 204 ? null : r.json(); }); }
+  function authHeaders(extra) {
+    var h = Object.assign({}, extra || {});
+    if (KEY) h['X-Station-Key'] = KEY;
+    if (TOKEN) h['X-Station-Token'] = TOKEN;
+    return h;
+  }
+  function api(path, opts) {
+    opts = Object.assign({}, opts || {}); opts.headers = authHeaders(opts.headers);
+    return fetch('/api/v1/public/stations/' + encodeURIComponent(SLUG) + path, opts).then(function (r) {
+      if (r.ok) return r.status === 204 ? null : r.json();
+      return r.json().catch(function () { return {}; }).then(function (b) { var e = new Error(r.status); e.status = r.status; e.detail = b && b.detail; throw e; });
+    });
+  }
+  function showGate(kind) {
+    state.blocked = true; viewEl.replaceChildren(); tabsEl.replaceChildren();
+    var gate = el('div', 'gate');
+    if (kind === 'pin') {
+      gate.appendChild(el('p', null, 'Enter the station PIN'));
+      var input = el('input'); input.type = 'password'; input.inputMode = 'numeric'; input.autocomplete = 'off'; input.maxLength = 8;
+      var err = el('div', 'err'); var go = el('button', null, 'Unlock');
+      var submit = function () {
+        go.disabled = true; err.textContent = '';
+        fetch('/api/v1/public/stations/' + encodeURIComponent(SLUG) + '/unlock', { method: 'POST', headers: authHeaders({ 'content-type': 'application/json' }), body: JSON.stringify({ pin: input.value }) })
+          .then(function (r) { return r.json().catch(function () { return {}; }).then(function (b) { return { r: r, b: b }; }); })
+          .then(function (res) {
+            if (res.r.ok) { TOKEN = res.b.token; try { sessionStorage.setItem(TOKEN_STORE, TOKEN); } catch (e) {} state.blocked = false; start(); return; }
+            err.textContent = res.r.status === 429 ? 'Too many wrong PINs. Wait a few minutes.' : 'Wrong PIN';
+            input.value = ''; go.disabled = false; input.focus();
+          }).catch(function () { err.textContent = 'Could not reach the server'; go.disabled = false; });
+      };
+      go.addEventListener('click', submit);
+      input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+      gate.appendChild(input); gate.appendChild(err); gate.appendChild(go);
+      viewEl.appendChild(gate); input.focus();
+    } else {
+      gate.appendChild(el('p', null, 'This station link is no longer valid. Ask the desk for a new one.'));
+      viewEl.appendChild(gate);
+    }
+  }
+  function handleAuthError(e) {
+    if (e && e.status === 401) { if (e.detail === 'pin') { TOKEN = ''; try { sessionStorage.removeItem(TOKEN_STORE); } catch (x) {} } showGate(e.detail === 'pin' ? 'pin' : 'key'); return true; }
+    return false;
+  }
   function fmtTime(ts) { return new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
 
   function setScreen(screen) {
@@ -152,6 +210,46 @@
     clock.className = 'clock' + (late ? ' late' : '');
   }
 
+  function timerSecondsLeft() {
+    var t = state.timer; if (!t) return null;
+    var now = Date.now() / 1000 + state.offset;
+    var elapsed = t.elapsed_before + (t.running_since != null ? Math.max(0, now - t.running_since) : 0);
+    return { elapsed: elapsed, left: t.mode === 'countdown' && t.duration != null ? t.duration - elapsed : null };
+  }
+  function fmtClock(total) {
+    var neg = total < 0, a = Math.abs(Math.floor(total)), h = Math.floor(a / 3600), m = Math.floor((a % 3600) / 60), sec = a % 60;
+    return (neg ? '-' : '') + (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(sec).padStart(2, '0');
+  }
+  function renderTimer() {
+    if (!state.timer) { viewEl.appendChild(el('div', 'empty', 'No timer running')); return; }
+    var box = el('div', 'timer');
+    box.appendChild(el('div', 'tlabel', state.timer.label || ''));
+    var clock = el('div', 'tclock neutral', '--:--'); clock.id = 'tclock';
+    box.appendChild(clock);
+    var st = el('div', 'tstate', ''); st.id = 'tstate';
+    box.appendChild(st);
+    viewEl.appendChild(box);
+    tickTimer();
+  }
+  function tickTimer() {
+    var clock = document.getElementById('tclock'), st = document.getElementById('tstate'), t = state.timer, v = timerSecondsLeft();
+    if (!clock || !t || !v) return;
+    var cls = 'neutral', shown = v.elapsed;
+    if (v.left !== null) {
+      shown = v.left;
+      cls = v.left < 0 ? 'overtime' : v.left <= t.critical ? 'red' : v.left <= t.warn ? 'amber' : 'green';
+    }
+    clock.textContent = fmtClock(shown);
+    clock.className = 'tclock ' + cls;
+    if (st) st.textContent = t.running_since == null ? 'Paused' : (v.left !== null && v.left < 0 ? 'Over time' : '');
+  }
+  function setTimer(timer, serverTime) {
+    state.timer = timer || null;
+    if (serverTime) state.offset = serverTime - Date.now() / 1000;
+    if (state.timer) { if (state.screen !== 'timer') setScreen('timer'); else render(); }
+    else if (state.screen === 'timer') setScreen('messages');
+  }
+
   function currentAgendaIndex(items) {
     var now = new Date(), mins = now.getHours() * 60 + now.getMinutes(), cur = -1;
     items.forEach(function (it, i) {
@@ -187,6 +285,7 @@
     viewEl.replaceChildren();
     if (state.screen === 'messages') renderMessages();
     else if (state.screen === 'countdown') renderCountdown();
+    else if (state.screen === 'timer') renderTimer();
     else if (state.screen === 'agenda_day') renderAgenda('day');
     else if (state.screen === 'agenda_finals') renderAgenda('finals');
   }
@@ -205,6 +304,8 @@
   function load() {
     return api('').then(function (st) {
       state.station = st;
+      state.timer = st.timer || null;
+      if (st.server_time) state.offset = st.server_time - Date.now() / 1000;
       document.title = st.name; document.getElementById('name').textContent = st.name;
       state.screen = st.screen;
       if (st.last_message && !state.messages.length) state.messages.push({ id: st.last_message.id, text: st.last_message.text, flash: false, sent_at: st.last_message.sent_at });
@@ -214,18 +315,23 @@
 
   var backoff = 1000, ws, ping;
   function connect() {
+    if (state.blocked) return;
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(proto + '//' + location.host + '/ws/station/' + encodeURIComponent(SLUG));
+    var auth = (KEY ? '?k=' + encodeURIComponent(KEY) : '') + (TOKEN ? (KEY ? '&' : '?') + 't=' + encodeURIComponent(TOKEN) : '');
+    ws = new WebSocket(proto + '//' + location.host + '/ws/station/' + encodeURIComponent(SLUG) + auth);
     ws.onopen = function () { backoff = 1000; statusEl.textContent = 'live'; clearInterval(ping); ping = setInterval(function () { try { ws.send('ping'); } catch (e) {} }, 25000); };
     ws.onmessage = function (ev) {
-      try { var m = JSON.parse(ev.data); if (m.type === 'message') onMessage(m); else if (m.type === 'screen') setScreen(m.screen); } catch (e) {}
+      try { var m = JSON.parse(ev.data); if (m.type === 'message') onMessage(m); else if (m.type === 'screen') setScreen(m.screen); else if (m.type === 'timer') setTimer(m.timer, m.server_time); } catch (e) {}
     };
-    ws.onclose = function () { clearInterval(ping); statusEl.textContent = 'reconnecting…'; setTimeout(function () { load().catch(function () {}); connect(); }, backoff); backoff = Math.min(backoff * 2, 15000); };
+    ws.onclose = function () { clearInterval(ping); statusEl.textContent = 'reconnecting…'; setTimeout(function () { if (state.blocked) return; load().catch(handleAuthError); connect(); }, backoff); backoff = Math.min(backoff * 2, 15000); };
   }
 
-  load().catch(function () { viewEl.appendChild(el('div', 'empty', 'Unknown station')); });
-  connect();
+  function start() {
+    load().then(connect).catch(function (e) { if (!handleAuthError(e)) viewEl.appendChild(el('div', 'empty', 'Unknown station')); });
+  }
+  start();
   setInterval(function () { if (state.screen === 'countdown') tickClock(); }, 1000);
+  setInterval(function () { if (state.screen === 'timer') tickTimer(); }, 250);
   setInterval(function () { if (state.screen === 'countdown') loadNext(); else if (state.screen.indexOf('agenda_') === 0) render(); }, 30000);
 })();
 </script>

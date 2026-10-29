@@ -23,7 +23,22 @@ class Station(Base):
     slug: Mapped[str] = mapped_column(String(50), primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)
+    #: When set, the station page/API need this key (`?k=` / `X-Station-Key`);
+    #: NULL = legacy open link (the slug alone). Rotating it revokes old links.
+    access_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Optional second factor on top of the key: `salt$scrypt-hash` of a PIN.
+    pin_hash: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: Bumped whenever the key or PIN changes, invalidating issued unlock tokens.
+    key_version: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+    @property
+    def secured(self) -> bool:
+        return self.access_key is not None
+
+    @property
+    def has_pin(self) -> bool:
+        return self.pin_hash is not None
 
 
 class CommsPreset(Base):
