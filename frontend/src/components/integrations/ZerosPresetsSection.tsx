@@ -1,6 +1,12 @@
 import { useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
-import { useZerosPresets, useCreateZerosPreset, useDeleteZerosPreset } from '../../api/integrations';
+import { Plus, Trash2, Zap } from 'lucide-react';
+import {
+  useZerosPresets,
+  useCreateZerosPreset,
+  useDeleteZerosPreset,
+  useCallIntegrationService,
+} from '../../api/integrations';
+import { usePermission } from '../../hooks/usePermission';
 import { useUiStore } from '../../stores/ui';
 import { Button } from '../ui/Button';
 import { Input, Label } from '../ui/Input';
@@ -17,13 +23,16 @@ export function ZerosPresetsSection({ integration }: { integration: IntegrationI
   const { data: presets, isLoading } = useZerosPresets();
   const createPreset = useCreateZerosPreset();
   const deletePreset = useDeleteZerosPreset();
+  const callService = useCallIntegrationService();
+  const canFire = usePermission('vfx:control');
   const pushToast = useUiStore((s) => s.pushToast);
 
   const [presetNumber, setPresetNumber] = useState('');
   const [presetName, setPresetName] = useState('');
 
   const instancePresets = (presets ?? [])
-    .filter((p) => p.integration_id === integration.entity_id)
+    // `integration_id` is the instance's UUID (`id`), not its `entity_id` slug.
+    .filter((p) => p.integration_id === integration.id)
     .sort((a, b) => a.preset_number - b.preset_number);
 
   function handleCreate() {
@@ -33,7 +42,7 @@ export function ZerosPresetsSection({ integration }: { integration: IntegrationI
       return;
     }
     createPreset.mutate(
-      { integration_id: integration.entity_id, preset_number: number, preset_name: presetName.trim() },
+      { integration_id: integration.id, preset_number: number, preset_name: presetName.trim() },
       {
         onSuccess: () => {
           setPresetNumber('');
@@ -41,6 +50,18 @@ export function ZerosPresetsSection({ integration }: { integration: IntegrationI
           pushToast('Preset created', 'success');
         },
         onError: (err) => pushToast(err instanceof Error ? err.message : 'Failed to create preset', 'error'),
+      },
+    );
+  }
+
+  /** Fires the preset on the board now (`set_preset` service -> OSC
+   * `/zeros/playback/go/<number>`), same call an automation action makes. */
+  function handleFire(presetNumber: number, name: string) {
+    callService.mutate(
+      { entityId: integration.entity_id, service: 'set_preset', data: { preset_id: presetNumber } },
+      {
+        onSuccess: () => pushToast(`Fired preset #${presetNumber} ${name}`, 'success'),
+        onError: (err) => pushToast(err instanceof Error ? err.message : 'Failed to fire preset', 'error'),
       },
     );
   }
@@ -66,13 +87,24 @@ export function ZerosPresetsSection({ integration }: { integration: IntegrationI
               <span>
                 <span className="text-vmd-textSubtle">#{preset.preset_number}</span> {preset.preset_name}
               </span>
-              <button
-                onClick={() => handleDelete(preset.id)}
-                className="text-vmd-textSubtle hover:text-vmd-danger"
-                title="Delete preset"
-              >
-                <Trash2 size={14} />
-              </button>
+              <span className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  className="!px-2.5 !py-1 text-xs"
+                  onClick={() => handleFire(preset.preset_number, preset.preset_name)}
+                  disabled={!canFire || callService.isPending}
+                  title={canFire ? 'Fire this preset now' : 'Requires the vfx:control permission'}
+                >
+                  <Zap size={12} /> Fire
+                </Button>
+                <button
+                  onClick={() => handleDelete(preset.id)}
+                  className="text-vmd-textSubtle hover:text-vmd-danger"
+                  title="Delete preset"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </span>
             </li>
           ))}
         </ul>
