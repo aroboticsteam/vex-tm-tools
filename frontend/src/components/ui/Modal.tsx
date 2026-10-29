@@ -21,6 +21,9 @@ export function Modal({
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         className={`vmd-card max-h-[85vh] w-full ${wide ? 'max-w-3xl' : 'max-w-md'} overflow-y-auto`}
         onClick={(e) => e.stopPropagation()}
       >
