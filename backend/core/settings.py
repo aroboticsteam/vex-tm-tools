@@ -80,6 +80,27 @@ class Settings(BaseSettings):
         default=None,
         description="Injected via k8s downward API. Falls back to local IP detection.",
     )
+    # ── Web Push (VAPID) — team/staff notifications ─────────────────────
+    VAPID_PRIVATE_KEY: str = Field(
+        default="",
+        description=(
+            "VAPID private key (urlsafe-base64 raw key; see tools/generate_vapid_keys.py). "
+            "Web Push is disabled while this or VAPID_PUBLIC_KEY is unset; room-display "
+            "alerts still work."
+        ),
+    )
+    VAPID_PUBLIC_KEY: str = Field(default="", description="VAPID public key (urlsafe-base64).")
+    VAPID_SUBJECT: str = Field(
+        default="mailto:admin@example.com",
+        description="`sub` claim for VAPID — a mailto: or https: contact for the push services.",
+    )
+    PUBLIC_BASE_URL: str = Field(
+        default="",
+        description=(
+            "Externally reachable base URL (e.g. https://tm.example.org) encoded into room QR "
+            "codes. Falls back to the request's own base URL when unset."
+        ),
+    )
     LOG_LEVEL: str = Field(
         default="INFO",
         description=(

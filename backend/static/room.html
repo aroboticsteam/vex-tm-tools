@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Room display</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0f1115; color: #eceff4;
+         font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; }
+  header { padding: 1rem 1.5rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1.5rem; }
+  h1 { margin: 0; font-size: 1.6rem; }
+  .teams { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .chip { background: #1d2230; border: 1px solid #2c3347; border-radius: 999px; padding: .15rem .65rem; font-size: .95rem; }
+  main { display: grid; gap: 1rem; padding: 0 1.5rem 1.5rem; grid-template-columns: minmax(0, 1fr) 260px; align-items: start; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .video { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; }
+  .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .panel { background: #161a23; border: 1px solid #262c3c; border-radius: 12px; padding: 1rem; text-align: center; }
+  .panel img { width: 100%; max-width: 220px; background: #fff; border-radius: 8px; padding: 6px; }
+  .panel p { margin: .6rem 0 0; font-size: .95rem; color: #aeb6c8; }
+  .status { position: fixed; right: .75rem; bottom: .5rem; font-size: .75rem; color: #6b7389; }
+  #toasts { position: fixed; top: 1rem; right: 1rem; display: flex; flex-direction: column; gap: .6rem; width: min(380px, calc(100vw - 2rem)); z-index: 10; }
+  .toast { background: #1f2638; border: 1px solid #3a4666; border-left: 5px solid #5b9dff; border-radius: 10px; padding: .75rem 1rem;
+           box-shadow: 0 6px 24px #0008; animation: in .25s ease-out; }
+  .toast b { display: block; margin-bottom: .2rem; font-size: 1.05rem; }
+  @keyframes in { from { transform: translateX(30px); opacity: 0; } }
+  #modal { position: fixed; inset: 0; background: #000b; display: none; align-items: center; justify-content: center; z-index: 20; padding: 1rem; }
+  #modal .box { background: #1b2030; border: 1px solid #3a4666; border-radius: 16px; padding: 2rem; max-width: 640px; width: 100%; text-align: center; }
+  #modal h2 { margin: 0 0 .75rem; font-size: 1.8rem; }
+  #modal p { margin: 0 0 1.25rem; font-size: 1.3rem; white-space: pre-wrap; }
+  button { background: #3b6fe0; color: #fff; border: 0; border-radius: 8px; padding: .6rem 1.4rem; font-size: 1rem; cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="name">Room</h1>
+  <div class="teams" id="teams"></div>
+</header>
+<main>
+  <section id="stream"></section>
+  <aside class="panel">
+    <img id="qr" alt="QR code to get match alerts on your phone" />
+    <p>Scan to get match alerts for your team on your phone.</p>
+  </aside>
+</main>
+<div id="toasts"></div>
+<div id="modal"><div class="box"><h2 id="modal-title"></h2><p id="modal-msg"></p><button id="modal-ok">Dismiss</button></div></div>
+<div class="status" id="status">connecting…</div>
+<script>
+(function () {
+  var SLUG = "__ROOM_SLUG__";
+  var statusEl = document.getElementById('status');
+  var shownStream = null;
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+
+  async function loadRoom() {
+    try {
+      var res = await fetch('/api/v1/public/rooms/' + encodeURIComponent(SLUG));
+      if (!res.ok) return;
+      var room = await res.json();
+      document.title = room.name;
+      document.getElementById('name').textContent = room.name;
+      var teams = document.getElementById('teams');
+      teams.replaceChildren.apply(teams, room.teams.map(function (t) { return el('span', 'chip', t); }));
+      var stream = document.getElementById('stream');
+      if (room.stream_url !== shownStream) {
+        shownStream = room.stream_url;
+        stream.replaceChildren();
+        if (room.stream_url) {
+          var wrap = el('div', 'video');
+          var frame = document.createElement('iframe');
+          frame.src = room.stream_url;
+          frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+          frame.referrerPolicy = 'strict-origin-when-cross-origin';
+          frame.allowFullscreen = true;
+          wrap.appendChild(frame);
+          stream.appendChild(wrap);
+        }
+      }
+    } catch (e) { /* retry on next refresh */ }
+  }
+
+  document.getElementById('qr').src = '/room/' + encodeURIComponent(SLUG) + '/qr.svg';
+
+  function toast(n) {
+    var box = el('div', 'toast');
+    box.appendChild(el('b', null, n.title));
+    box.appendChild(el('span', null, n.message));
+    document.getElementById('toasts').appendChild(box);
+    setTimeout(function () { box.remove(); }, Math.max(5, n.duration || 30) * 1000);
+  }
+
+  var modalTimer = null;
+  function modal(n) {
+    document.getElementById('modal-title').textContent = n.title;
+    document.getElementById('modal-msg').textContent = n.message;
+    var m = document.getElementById('modal');
+    m.style.display = 'flex';
+    clearTimeout(modalTimer);
+    modalTimer = setTimeout(hideModal, Math.max(10, n.duration || 60) * 1000);
+  }
+  function hideModal() { document.getElementById('modal').style.display = 'none'; clearTimeout(modalTimer); }
+  document.getElementById('modal-ok').addEventListener('click', hideModal);
+
+  var seen = {};
+  function onNotice(n) {
+    if (n.id && seen[n.id]) return;
+    if (n.id) seen[n.id] = true;
+    if (n.modal) modal(n); else toast(n);
+  }
+
+  var backoff = 1000, ws, ping;
+  function connect() {
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(proto + '//' + location.host + '/ws/room/' + encodeURIComponent(SLUG));
+    ws.onopen = function () {
+      backoff = 1000; statusEl.textContent = 'live';
+      clearInterval(ping);
+      ping = setInterval(function () { try { ws.send('ping'); } catch (e) {} }, 25000);
+    };
+    ws.onmessage = function (ev) {
+      try { var m = JSON.parse(ev.data); if (m.type === 'notice') onNotice(m); } catch (e) {}
+    };
+    ws.onclose = function () {
+      clearInterval(ping); statusEl.textContent = 'reconnecting…';
+      setTimeout(connect, backoff); backoff = Math.min(backoff * 2, 15000);
+    };
+  }
+
+  loadRoom();
+  setInterval(loadRoom, 60000);
+  connect();
+})();
+</script>
+</body>
+</html>

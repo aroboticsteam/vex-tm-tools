@@ -54,6 +54,13 @@ SCHEDULE_KEY_TMPL = "qecomp:tm:{entity_id}:schedule"
 
 MAX_BACKOFF_SECONDS = 300  # 5 minutes, per plan §3.7
 
+# Scores show up in `/api/matches/{division}` a little after `matchStopped`,
+# so re-fetch at these offsets (seconds) instead of waiting for the next
+# poll — the notification service reads the cached schedule for score alerts.
+POST_MATCH_REFRESH_DELAYS = (10, 20, 30)
+# TM's docs ask clients not to poll resources more than ~once a minute.
+DEFAULT_POLL_INTERVAL_SECONDS = 60
+
 
 def _host_header(hostname: str, scheme: str, port: int | None) -> str:
     """Only include the port when it's non-standard for the scheme (§3.7 fix)."""
@@ -134,6 +141,7 @@ class VexTmIntegration(Integration):
         # before republishing, since that's what every downstream consumer
         # (scraper, ws.py, predictor) actually needs.
         self._match_index: dict[tuple[Any, ...], dict[str, Any]] = {}
+        self._refresh_task: asyncio.Task | None = None
 
     # ── lifecycle ────────────────────────────────────────────────────
     async def setup(self) -> None:
@@ -160,6 +168,9 @@ class VexTmIntegration(Integration):
     async def teardown(self) -> None:
         try:
             self._shutdown.set()
+            if self._refresh_task is not None:
+                self._tasks.append(self._refresh_task)
+                self._refresh_task = None
             for task in self._tasks:
                 task.cancel()
             if self._tasks:
@@ -376,6 +387,8 @@ class VexTmIntegration(Integration):
         payload = data
         if event_type == "fieldMatchAssigned":
             payload = await self._enrich_field_match_assigned(data)
+        elif event_type == "matchStopped":
+            self._schedule_post_match_refresh()
 
         self._last_event = payload
         message = EventBusMessage(
@@ -435,6 +448,25 @@ class VexTmIntegration(Integration):
             "blueTeams": entry["blueTeams"],
         }
 
+    def _schedule_post_match_refresh(self) -> None:
+        """After a match stops, re-fetch the schedule a few times so its final
+        score reaches the cache quickly. A newer stop restarts the sequence."""
+        if self._shutdown.is_set():
+            return
+        if self._refresh_task is not None and not self._refresh_task.done():
+            self._refresh_task.cancel()
+        self._refresh_task = asyncio.create_task(self._post_match_refresh())
+
+    async def _post_match_refresh(self) -> None:
+        for delay in POST_MATCH_REFRESH_DELAYS:
+            await asyncio.sleep(delay)
+            try:
+                await self._fetch_and_cache_schedule()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("vex_tm[%s]: post-match schedule refresh failed", self.entity_id)
+
     # ── REST GET (signed) ────────────────────────────────────────────
     async def _get(self, endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         assert self._http is not None
@@ -479,7 +511,7 @@ class VexTmIntegration(Integration):
 
     # ── Schedule poller (Redis-cached, §3.7) ─────────────────────────
     async def _schedule_poll_loop(self) -> None:
-        interval = int(self.config.get("poll_interval_seconds") or 300)
+        interval = int(self.config.get("poll_interval_seconds") or DEFAULT_POLL_INTERVAL_SECONDS)
         while not self._shutdown.is_set():
             try:
                 await self._fetch_and_cache_schedule()

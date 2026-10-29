@@ -67,7 +67,7 @@ services:
       - "traefik.enable=true"
       # Same path split as the old file-provider routes.yml: backend-owned
       # paths under vex.localhost bypass the SPA catch-all.
-      - "traefik.http.routers.qecomp-backend-paths.rule=Host(`vex.localhost`) && (PathPrefix(`/api`) || PathPrefix(`/auth`) || PathPrefix(`/admin_login`) || PathPrefix(`/ws`) || PathPrefix(`/prompter`) || PathPrefix(`/overlay`) || Path(`/healthz`) || Path(`/readyz`))"
+      - "traefik.http.routers.qecomp-backend-paths.rule=Host(`vex.localhost`) && (PathPrefix(`/api`) || PathPrefix(`/auth`) || PathPrefix(`/admin_login`) || PathPrefix(`/ws`) || PathPrefix(`/prompter`) || PathPrefix(`/overlay`) || PathPrefix(`/room/`) || Path(`/notify`) || Path(`/notify.webmanifest`) || Path(`/sw.js`) || Path(`/healthz`) || Path(`/readyz`))"
       - "traefik.http.routers.qecomp-backend-paths.entrypoints=websecure"
       - "traefik.http.routers.qecomp-backend-paths.tls=true"
       - "traefik.http.routers.qecomp-backend-paths.priority=100"

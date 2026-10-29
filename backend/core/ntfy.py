@@ -19,6 +19,7 @@ retry-exhaustion, video processing failure).
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -26,10 +27,14 @@ import httpx
 from sqlalchemy import text
 
 from backend.core.db import async_session_factory
+from backend.core.redis import redis_client
 
 logger = logging.getLogger(__name__)
 
 _SETTINGS_KEY = "notifications"
+#: Redis channel the leader's `NotificationService` forwards to staff Web Push
+#: (kept as a literal here: `backend/core/` may not import `backend/modules/`).
+STAFF_ALERTS_CHANNEL = "qecomp:staff_alerts"
 _REQUEST_TIMEOUT_SECONDS = 5.0
 
 
@@ -52,9 +57,18 @@ async def _read_notification_settings() -> dict[str, Any]:
 async def send_ntfy_notification(title: str, message: str, priority: str = "default") -> None:
     """Best-effort push notification via a self-hosted ntfy server.
 
-    No-ops silently if notifications are disabled, or `server_url`/`topic`
-    are unset. Never raises.
+    Also fans the alert out to staff Web Push subscribers via Redis, whether
+    or not ntfy itself is configured. The ntfy POST no-ops silently if
+    notifications are disabled, or `server_url`/`topic` are unset. Never
+    raises.
     """
+    try:
+        await redis_client.publish(
+            STAFF_ALERTS_CHANNEL, json.dumps({"title": title, "message": message, "priority": priority})
+        )
+    except Exception as exc:
+        logger.warning("Could not publish staff alert (title=%r): %s", title, exc)
+
     try:
         config = await _read_notification_settings()
         if not config.get("enabled"):

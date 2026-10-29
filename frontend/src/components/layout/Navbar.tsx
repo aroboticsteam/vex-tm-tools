@@ -13,12 +13,14 @@ import {
   LogOut,
   Bug,
   Activity,
+  DoorOpen,
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { logout } from '../../api/auth';
 import { useAuthStore } from '../../stores/auth';
 import { usePermission } from '../../hooks/usePermission';
+import { StaffPushToggle } from './StaffPushToggle';
 
 interface NavItem {
   to: string;
@@ -35,6 +37,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/timers', label: 'Timers', icon: Timer },
   { to: '/overlays', label: 'Overlays', icon: Presentation },
   { to: '/teams', label: 'Teams', icon: Users2 },
+  { to: '/rooms', label: 'Rooms', icon: DoorOpen },
   { to: '/audit', label: 'Audit Log', icon: ScrollText },
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
   { to: '/users', label: 'Users & Roles', icon: ShieldCheck },
@@ -87,6 +90,7 @@ export function Navbar() {
           ))}
       </div>
       <div className="ml-auto flex items-center gap-2 pl-2 text-xs text-vmd-textSubtle">
+        <StaffPushToggle />
         {subject && <span>{subject}</span>}
         <button
           onClick={() => logoutMutation.mutate()}

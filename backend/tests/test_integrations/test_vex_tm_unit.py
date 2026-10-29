@@ -245,3 +245,37 @@ async def test_teardown_never_raises_even_if_ws_close_fails(redis_client):
     integration._ws = bad_ws
     await integration.teardown()  # must not raise
     assert integration._ws is None
+
+
+async def test_match_stopped_triggers_post_match_schedule_refreshes(redis_client, monkeypatch):
+    """Final scores land in `/api/matches` shortly after `matchStopped`, so the
+    integration re-fetches the schedule a few times instead of waiting for the
+    next poll (the notification service reads that cache for score alerts)."""
+    import asyncio
+
+    from backend.modules.integrations.vex_tm import integration as mod
+
+    monkeypatch.setattr(mod, "POST_MATCH_REFRESH_DELAYS", (0, 0, 0))
+    integration = VexTmIntegration("vex_tm.test", _make_config(), redis_client, None)
+    integration._fetch_and_cache_schedule = AsyncMock()
+
+    await integration._handle_ws_message(json.dumps({"type": "matchStopped", "fieldID": 1}))
+    await integration._handle_ws_message(json.dumps({"type": "fieldActivated", "fieldID": 1}))  # no refresh
+    await integration._refresh_task
+
+    assert integration._fetch_and_cache_schedule.await_count == 3
+
+    # A newer stop supersedes an in-flight sequence and teardown cancels it.
+    monkeypatch.setattr(mod, "POST_MATCH_REFRESH_DELAYS", (60,))
+    await integration._handle_ws_message(json.dumps({"type": "matchStopped", "fieldID": 1}))
+    task = integration._refresh_task
+    await integration.teardown()
+    await asyncio.sleep(0)
+    assert task.cancelled() or task.done()
+    assert integration._refresh_task is None
+
+
+async def test_default_poll_interval_is_one_minute(redis_client):
+    from backend.modules.integrations.vex_tm.integration import DEFAULT_POLL_INTERVAL_SECONDS
+
+    assert DEFAULT_POLL_INTERVAL_SECONDS == 60

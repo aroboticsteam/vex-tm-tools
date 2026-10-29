@@ -47,6 +47,12 @@ export default defineConfig({
       // backend's baked-in production index.html instead of this dev
       // server's own SPA shell, producing a silent blank page.
       '/overlay/': { target: backendTarget, changeOrigin: true },
+      // Public room display + phone subscribe pages (backend/routers/public_pages.py).
+      // `/room/` has a trailing slash for the same reason as `/overlay/` above
+      // (the admin SPA page is `/rooms`).
+      '/room/': { target: backendTarget, changeOrigin: true },
+      '/notify': { target: backendTarget, changeOrigin: true },
+      '/sw.js': { target: backendTarget, changeOrigin: true },
       '/ws': { target: backendTarget, changeOrigin: true, ws: true },
     },
   },

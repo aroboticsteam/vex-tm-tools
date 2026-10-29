@@ -33,6 +33,7 @@ from backend.core.redis import redis_client
 from backend.core.security import validate_prompter_token
 from backend.core.sessions import SESSION_COOKIE_NAME, get_session, unsign_session_id
 from backend.models.overlay import OverlayInstance
+from backend.models.room import Room
 from backend.models.timer import PrompterCue, TimerInstance
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,8 @@ TIMER_EVENT_TYPES = {"timer_started", "timer_milestone", "timer_finished", "time
 #: but `ConnectionManager.connect`/`disconnect`'s frozen signature always
 #: takes an entity_id — this sentinel keeps every connection symmetric).
 EVENTS_BUCKET = "__events__"
+#: Bookkeeping bucket prefix for the public `/ws/room/{slug}` connections.
+ROOM_BUCKET_PREFIX = "room:"
 
 # WebSocket close codes (RFC 6455 range 4000-4999 is free for application use).
 WS_CLOSE_POLICY_VIOLATION = 4003  # invalid/missing prompter token
@@ -181,6 +184,25 @@ class ConnectionManager:
             await self._dispatch_timer_state(entity_id, event_type, data)
         elif event_type == "fieldMatchAssigned":
             await self._dispatch_upcoming_match(data)
+        elif event_type == "room_notice":
+            await self._dispatch_room_notice(data)
+
+    async def _dispatch_room_notice(self, data: dict[str, Any]) -> None:
+        """Forwards a `room_notice` (published by `modules/notifications`) to
+        the public `/ws/room/<slug>` clients of each room it names. Only the
+        display-safe fields go out, never the whole bus message."""
+        payload = data.get("payload") or {}
+        notice = {
+            "type": "notice",
+            "id": payload.get("id"),
+            "title": payload.get("title", ""),
+            "message": payload.get("message", ""),
+            "modal": bool(payload.get("modal")),
+            "duration": payload.get("duration", 30),
+            "timestamp": data.get("timestamp", time.time()),
+        }
+        for slug in payload.get("rooms") or []:
+            await self.broadcast(f"{ROOM_BUCKET_PREFIX}{slug}", notice)
 
     @staticmethod
     def _sanitize_for_events(data: dict[str, Any]) -> dict[str, Any]:
@@ -364,6 +386,37 @@ async def ws_events(websocket: WebSocket) -> None:
         pass
     finally:
         await manager.disconnect(EVENTS_BUCKET, websocket)
+
+
+# ── /ws/room/{slug} ───────────────────────────────────────────────────
+
+#: Room slugs are admin-chosen `[a-z0-9-]`; anything else can't be a room.
+_ROOM_SLUG_CHARS = set("abcdefghijklmnopqrstuvwxyz0123456789-")
+
+
+@router.websocket("/ws/room/{slug}")
+async def ws_room(websocket: WebSocket, slug: str) -> None:
+    """Public (no auth) feed for a room display page: it only ever receives
+    that room's `notice` messages, and sends nothing meaningful. The page is
+    shown on a screen in the room, so the room slug is the only "credential"
+    (like the overlay URL's entity_id); notices carry no private data."""
+    if not slug or len(slug) > 50 or not set(slug) <= _ROOM_SLUG_CHARS:
+        await websocket.close(code=WS_CLOSE_POLICY_VIOLATION, reason="Unknown room")
+        return
+    async with async_session_factory() as session:
+        room = await session.get(Room, slug)
+    if room is None:
+        await websocket.close(code=WS_CLOSE_POLICY_VIOLATION, reason="Unknown room")
+        return
+    bucket = f"{ROOM_BUCKET_PREFIX}{slug}"
+    await manager.connect(bucket, websocket)
+    try:
+        while True:
+            await websocket.receive_text()  # keepalive pings from the page
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await manager.disconnect(bucket, websocket)
 
 
 # ── /ws/prompter/{entity_id} ──────────────────────────────────────────
