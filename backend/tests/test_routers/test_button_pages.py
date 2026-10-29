@@ -210,3 +210,50 @@ async def test_permissions_enforced(session_factory, instance):
         assert (await presser.post(f"/api/v1/button-pages/buttons/{button['id']}/press")).status_code == 200
     async with await client_with(set()) as nobody:
         assert (await nobody.post(f"/api/v1/button-pages/buttons/{button['id']}/press")).status_code == 403
+
+
+async def test_button_icon_and_confirm_round_trip(admin):
+    page = (await admin.post("/api/v1/button-pages", json={"name": _name()})).json()
+    button = (
+        await admin.post(
+            f"/api/v1/button-pages/{page['id']}/buttons",
+            json={"label": "Nuke", "action_yaml": GOOD_YAML, "icon": "💥", "confirm": True},
+        )
+    ).json()
+    assert button["icon"] == "💥" and button["confirm"] is True
+    plain = (await admin.post(f"/api/v1/button-pages/{page['id']}/buttons", json={"label": "Safe", "action_yaml": GOOD_YAML})).json()
+    assert plain["icon"] is None and plain["confirm"] is False
+    updated = (await admin.put(f"/api/v1/button-pages/buttons/{button['id']}", json={"confirm": False})).json()
+    assert updated["confirm"] is False and updated["icon"] == "💥"
+    too_long = await admin.put(f"/api/v1/button-pages/buttons/{button['id']}", json={"icon": "123456789"})
+    assert too_long.status_code == 422
+
+
+async def test_reorder_buttons_and_pages(admin):
+    p1 = (await admin.post("/api/v1/button-pages", json={"name": _name(), "position": 1})).json()
+    p2 = (await admin.post("/api/v1/button-pages", json={"name": _name(), "position": 2})).json()
+    ids = []
+    for label in ("A", "B", "C"):
+        ids.append((await admin.post(f"/api/v1/button-pages/{p1['id']}/buttons", json={"label": label, "action_yaml": GOOD_YAML})).json()["id"])
+
+    resp = await admin.put(f"/api/v1/button-pages/{p1['id']}/buttons/order", json={"ids": [ids[2], ids[0]]})
+    assert resp.status_code == 204
+    mine = next(p for p in (await admin.get("/api/v1/button-pages")).json() if p["id"] == p1["id"])
+    assert [b["label"] for b in mine["buttons"]] == ["C", "A", "B"]  # unlisted keep relative order after
+
+    bad = await admin.put(f"/api/v1/button-pages/{p1['id']}/buttons/order", json={"ids": [str(uuid.uuid4())]})
+    assert bad.status_code == 422
+    dup = await admin.put(f"/api/v1/button-pages/{p1['id']}/buttons/order", json={"ids": [ids[0], ids[0]]})
+    assert dup.status_code == 422
+    assert (await admin.put(f"/api/v1/button-pages/{uuid.uuid4()}/buttons/order", json={"ids": [ids[0]]})).status_code == 404
+
+    assert (await admin.put("/api/v1/button-pages/order", json={"ids": [p2["id"], p1["id"]]})).status_code == 204
+    order = [p["id"] for p in (await admin.get("/api/v1/button-pages")).json() if p["id"] in (p1["id"], p2["id"])]
+    assert order == [p2["id"], p1["id"]]
+    assert (await admin.put("/api/v1/button-pages/order", json={"ids": [str(uuid.uuid4())]})).status_code == 422
+
+
+async def test_reorder_requires_manage(session_factory, instance):
+    app = _make_client(session_factory, {"buttons:read", "buttons:press"})
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        assert (await client.put("/api/v1/button-pages/order", json={"ids": [str(uuid.uuid4())]})).status_code == 403

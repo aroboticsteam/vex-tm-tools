@@ -50,3 +50,13 @@ export function usePressButton() {
     mutationFn: (id: string) => apiFetch<PressResult>(`/api/v1/button-pages/buttons/${id}/press`, { method: 'POST' }),
   });
 }
+
+export function useReorderPages() {
+  return useInvalidating((ids: string[]) => apiFetch<void>('/api/v1/button-pages/order', { method: 'PUT', body: { ids } }));
+}
+
+export function useReorderButtons() {
+  return useInvalidating(({ pageId, ids }: { pageId: string; ids: string[] }) =>
+    apiFetch<void>(`/api/v1/button-pages/${pageId}/buttons/order`, { method: 'PUT', body: { ids } }),
+  );
+}

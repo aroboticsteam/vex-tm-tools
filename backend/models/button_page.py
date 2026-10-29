@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,4 +33,8 @@ class Button(Base):
     color: Mapped[str] = mapped_column(String(7), nullable=False, server_default="#374151")
     position: Mapped[int] = mapped_column(Integer, server_default="0")
     action_yaml: Mapped[str] = mapped_column(Text, nullable=False)
+    #: A short emoji/glyph shown above the label.
+    icon: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    #: The UI asks "are you sure?" before running (risky actions).
+    confirm: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

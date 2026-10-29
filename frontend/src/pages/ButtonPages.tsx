@@ -7,6 +7,8 @@ import {
   useDeleteButton,
   useDeletePage,
   usePressButton,
+  useReorderButtons,
+  useReorderPages,
   useUpdateButton,
   useUpdatePage,
 } from '../api/buttonPages';
@@ -16,7 +18,9 @@ import { Button } from '../components/ui/Button';
 import { Card, PageHeader } from '../components/ui/Card';
 import { Input, Label } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
-import { YamlEditor } from '../components/ui/YamlEditor';
+import { ActionBuilder } from '../components/buttons/ActionBuilder';
+import { Toggle } from '../components/ui/Toggle';
+import { moveItem } from '../lib/actionBuilder';
 import type { ButtonItem, ButtonPage } from '../types/api';
 
 const DEFAULT_YAML = `- service: obs.switch_scene
@@ -40,6 +44,12 @@ export function ButtonPagesPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [pressing, setPressing] = useState<string | null>(null);
+  // Last outcome per button (cleared after a moment) so the grid shows what happened.
+  const [outcome, setOutcome] = useState<Record<string, 'success' | 'failed'>>({});
+  const reorderButtons = useReorderButtons();
+  const reorderPages = useReorderPages();
+  const [dragButton, setDragButton] = useState<string | null>(null);
+  const [dragPage, setDragPage] = useState<string | null>(null);
   const [editingButton, setEditingButton] = useState<ButtonItem | 'new' | null>(null);
   const [editingPage, setEditingPage] = useState<ButtonPage | 'new' | null>(null);
 
@@ -49,20 +59,52 @@ export function ButtonPagesPage() {
     if (active && active.id !== activeId) setActiveId(active.id);
   }, [active, activeId]);
 
+  function flash(id: string, result: 'success' | 'failed') {
+    setOutcome((o) => ({ ...o, [id]: result }));
+    window.setTimeout(
+      () =>
+        setOutcome((o) => {
+          const { [id]: _gone, ...rest } = o;
+          return rest;
+        }),
+      result === 'failed' ? 4000 : 1500,
+    );
+  }
+
   function onPress(button: ButtonItem) {
     if (editMode) {
       setEditingButton(button);
       return;
     }
+    if (button.confirm && !window.confirm(`Run "${button.label}"?`)) return;
     setPressing(button.id);
     press.mutate(button.id, {
       onSuccess: (result) => {
+        flash(button.id, result.status === 'success' ? 'success' : 'failed');
         if (result.status === 'success') pushToast(`${button.label}: done`, 'success');
         else pushToast(`${button.label} failed: ${result.error ?? 'unknown error'}`, 'error');
       },
-      onError: (err) => pushToast(err instanceof Error ? err.message : 'Press failed', 'error'),
+      onError: (err) => {
+        flash(button.id, 'failed');
+        pushToast(err instanceof Error ? err.message : 'Press failed', 'error');
+      },
       onSettled: () => setPressing(null),
     });
+  }
+
+  const onReorderError = (err: unknown) => pushToast(err instanceof Error ? err.message : 'Reorder failed', 'error');
+
+  function dropButton(targetId: string) {
+    if (!active || !dragButton || dragButton === targetId) return;
+    const ids = active.buttons.map((b) => b.id);
+    const next = moveItem(ids, ids.indexOf(dragButton), ids.indexOf(targetId));
+    reorderButtons.mutate({ pageId: active.id, ids: next }, { onError: onReorderError });
+  }
+
+  function dropPage(targetId: string) {
+    if (!dragPage || dragPage === targetId) return;
+    const ids = list.map((p) => p.id);
+    reorderPages.mutate(moveItem(ids, ids.indexOf(dragPage), ids.indexOf(targetId)), { onError: onReorderError });
   }
 
   function removeButton(button: ButtonItem) {
@@ -119,6 +161,13 @@ export function ButtonPagesPage() {
               role="tab"
               aria-selected={p.id === active?.id}
               onClick={() => setActiveId(p.id)}
+              draggable={editMode && canManage}
+              onDragStart={() => setDragPage(p.id)}
+              onDragOver={(e) => editMode && e.preventDefault()}
+              onDrop={() => {
+                dropPage(p.id);
+                setDragPage(null);
+              }}
               className={`rounded-lg border px-3 py-1.5 text-sm ${
                 p.id === active?.id
                   ? 'border-vmd-accent bg-vmd-surfaceSubtle text-vmd-textStrong'
@@ -147,20 +196,40 @@ export function ButtonPagesPage() {
             </div>
           )}
           <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(active.columns, 12)}, minmax(0, 1fr))` }}>
-            {active.buttons.map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                onClick={() => onPress(b)}
-                disabled={(!canPress && !editMode) || pressing === b.id}
-                style={{ backgroundColor: b.color }}
-                className={`min-h-20 rounded-xl px-2 py-3 text-center text-sm font-semibold text-white shadow transition active:scale-95 disabled:opacity-50 ${
-                  editMode ? 'outline outline-2 outline-dashed outline-white/50' : ''
-                }`}
-              >
-                {b.label}
-              </button>
-            ))}
+            {active.buttons.map((b) => {
+              const result = outcome[b.id];
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  data-testid="pad-button"
+                  data-state={pressing === b.id ? 'running' : (result ?? 'idle')}
+                  onClick={() => onPress(b)}
+                  draggable={editMode && canManage}
+                  onDragStart={() => setDragButton(b.id)}
+                  onDragOver={(e) => editMode && e.preventDefault()}
+                  onDrop={() => {
+                    dropButton(b.id);
+                    setDragButton(null);
+                  }}
+                  disabled={(!canPress && !editMode) || pressing === b.id}
+                  style={{ backgroundColor: b.color }}
+                  className={`relative min-h-20 rounded-xl px-2 py-3 text-center text-sm font-semibold text-white shadow transition active:scale-95 disabled:opacity-50 ${
+                    editMode ? 'cursor-grab outline outline-2 outline-dashed outline-white/50' : ''
+                  } ${pressing === b.id ? 'animate-pulse' : ''} ${
+                    result === 'success' ? 'ring-4 ring-green-400' : result === 'failed' ? 'ring-4 ring-red-500' : ''
+                  }`}
+                >
+                  {b.icon && <span className="block text-2xl leading-none">{b.icon}</span>}
+                  {b.label}
+                  {result && (
+                    <span className="absolute right-1.5 top-1 text-xs" aria-hidden>
+                      {result === 'success' ? '✓' : '✕'}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
           {active.buttons.length === 0 && <p className="text-sm text-vmd-textSubtle">No buttons on this page yet.</p>}
         </Card>
@@ -246,9 +315,18 @@ function ButtonFormModal({
   const [label, setLabel] = useState(existing?.label ?? '');
   const [color, setColor] = useState(existing?.color ?? '#374151');
   const [yaml, setYaml] = useState(existing?.action_yaml ?? DEFAULT_YAML);
+  const [icon, setIcon] = useState(existing?.icon ?? '');
+  const [confirm, setConfirm] = useState(existing?.confirm ?? false);
 
   function submit() {
-    const body = { label: label.trim(), color, position: existing?.position ?? nextPosition, action_yaml: yaml };
+    const body = {
+      label: label.trim(),
+      color,
+      position: existing?.position ?? nextPosition,
+      action_yaml: yaml,
+      icon: icon.trim() || null,
+      confirm,
+    };
     const callbacks = {
       onSuccess: () => {
         pushToast(existing ? 'Button updated' : 'Button created', 'success');
@@ -263,19 +341,27 @@ function ButtonFormModal({
   return (
     <Modal open={editing !== null} onClose={onClose} title={existing ? `Edit ${existing.label}` : 'New button'} wide>
       <div className="space-y-3">
-        <div className="grid grid-cols-[1fr_auto] gap-3">
+        <div className="grid grid-cols-[1fr_5rem_auto] gap-3">
           <div>
             <Label>Label</Label>
-            <Input value={label} onChange={(e) => setLabel(e.target.value)} />
+            <Input value={label} onChange={(e) => setLabel(e.target.value)} aria-label="Label" />
+          </div>
+          <div>
+            <Label>Icon</Label>
+            <Input value={icon} maxLength={8} placeholder="💡" onChange={(e) => setIcon(e.target.value)} aria-label="Icon" />
           </div>
           <div>
             <Label>Colour</Label>
             <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-9 w-16 rounded" />
           </div>
         </div>
+        <div className="flex items-center justify-between">
+          <Label>Ask “are you sure?” before running</Label>
+          <Toggle checked={confirm} onChange={setConfirm} />
+        </div>
         <div>
-          <Label>Actions (YAML — same format as scripts; list services, scripts, delays…)</Label>
-          <YamlEditor value={yaml} onChange={setYaml} rows={10} />
+          <Label>Actions</Label>
+          <ActionBuilder value={yaml} onChange={setYaml} />
         </div>
         <div className="flex justify-between gap-2">
           <div>
