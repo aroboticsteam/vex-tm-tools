@@ -33,6 +33,7 @@ from backend.schemas.button_page import (
     PageUpdate,
     PageWithButtons,
     PressResult,
+    ReorderRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,49 @@ async def create_page(
     await db.refresh(page)
     await log_action(db, principal.subject, "create", "button_page", str(page.id), changes=body.model_dump())
     return PageRead.model_validate(page)
+
+
+@router.put("/order", status_code=204, response_model=None)
+async def reorder_pages(
+    body: ReorderRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    principal: Annotated[CurrentPrincipal, Depends(require_permission("buttons:manage"))],
+) -> Response:
+    """Sets page order; pages not listed keep their relative order after the listed ones."""
+    pages = {p.id: p for p in (await db.execute(select(ButtonPage))).scalars()}
+    unknown = [str(i) for i in body.ids if i not in pages]
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"Unknown pages: {', '.join(unknown)}")
+    if len(set(body.ids)) != len(body.ids):
+        raise HTTPException(status_code=422, detail="Duplicate ids")
+    rest = sorted((p for i, p in pages.items() if i not in set(body.ids)), key=lambda p: (p.position, p.name))
+    for position, page in enumerate([pages[i] for i in body.ids] + rest):
+        page.position = position
+    await db.commit()
+    await log_action(db, principal.subject, "reorder", "button_page", "*", changes={"ids": [str(i) for i in body.ids]})
+    return Response(status_code=204)
+
+
+@router.put("/{page_id}/buttons/order", status_code=204, response_model=None)
+async def reorder_buttons(
+    page_id: UUID,
+    body: ReorderRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    principal: Annotated[CurrentPrincipal, Depends(require_permission("buttons:manage"))],
+) -> Response:
+    await _page_or_404(db, page_id)
+    buttons = {b.id: b for b in (await db.execute(select(Button).where(Button.page_id == page_id))).scalars()}
+    unknown = [str(i) for i in body.ids if i not in buttons]
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"Buttons not on this page: {', '.join(unknown)}")
+    if len(set(body.ids)) != len(body.ids):
+        raise HTTPException(status_code=422, detail="Duplicate ids")
+    rest = sorted((b for i, b in buttons.items() if i not in set(body.ids)), key=lambda b: (b.position, b.label))
+    for position, button in enumerate([buttons[i] for i in body.ids] + rest):
+        button.position = position
+    await db.commit()
+    await log_action(db, principal.subject, "reorder", "button", str(page_id), changes={"ids": [str(i) for i in body.ids]})
+    return Response(status_code=204)
 
 
 @router.put("/{page_id}", response_model=PageRead)

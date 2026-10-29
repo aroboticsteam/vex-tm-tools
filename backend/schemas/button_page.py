@@ -14,6 +14,8 @@ class ButtonBase(BaseModel):
     color: str = Field(default="#374151", pattern=COLOR_PATTERN)
     position: int = Field(default=0, ge=0, le=1000)
     action_yaml: str = Field(..., min_length=1)
+    icon: str | None = Field(default=None, max_length=8)
+    confirm: bool = False
 
 
 class ButtonCreate(ButtonBase):
@@ -25,6 +27,14 @@ class ButtonUpdate(BaseModel):
     color: str | None = Field(default=None, pattern=COLOR_PATTERN)
     position: int | None = Field(default=None, ge=0, le=1000)
     action_yaml: str | None = Field(default=None, min_length=1)
+    icon: str | None = Field(default=None, max_length=8)
+    confirm: bool | None = None
+
+
+class ReorderRequest(BaseModel):
+    """Ids in their new order; position becomes the index."""
+
+    ids: list[UUID] = Field(..., min_length=1, max_length=500)
 
 
 class ButtonRead(ButtonBase):

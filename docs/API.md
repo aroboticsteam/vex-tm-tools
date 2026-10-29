@@ -41,7 +41,7 @@ Manages dynamically-loaded integration instances (`vex_tm`, `spotify`,
 |---|---|---|
 | GET | `/api/v1/integrations` | List all configured integration instances and their live connection status. |
 | POST | `/api/v1/integrations` | Create a new integration instance (validates against the domain's `manifest.yaml` `config_schema`). |
-| GET | `/api/v1/integrations/schemas` | List every registered integration domain's manifest (available domains + their config schema), for the Integrations UI's "add instance" form. |
+| GET | `/api/v1/integrations/schemas` | List every registered integration domain's manifest (available domains + their config schema and callable `services` with their fields), for the Integrations UI's "add instance" form. |
 | PUT | `/api/v1/integrations/{entity_id}` | Update an instance's config; hot-reloads it via the `Loader`. |
 | DELETE | `/api/v1/integrations/{entity_id}` | Remove an instance and tear down its live client. |
 | GET | `/api/v1/integrations/{entity_id}/state` | Fetch the instance's current `get_state()` telemetry. |
@@ -212,7 +212,9 @@ or open `/docs` for the full interactive Swagger UI.
 | GET | `/api/v1/button-pages` | List pages with their buttons (`buttons:read`). |
 | POST | `/api/v1/button-pages` | Create a page (`buttons:manage`). |
 | PUT/DELETE | `/api/v1/button-pages/{page_id}` | Update/delete a page (`buttons:manage`). |
-| POST | `/api/v1/button-pages/{page_id}/buttons` | Create a button; `action_yaml` uses the script/automation action format (`buttons:manage`). |
+| PUT | `/api/v1/button-pages/order` | Reorder pages: `{"ids": [...]}` (listed first, the rest keep their relative order) (`buttons:manage`). |
+| PUT | `/api/v1/button-pages/{page_id}/buttons/order` | Reorder a page's buttons the same way (`buttons:manage`). |
+| POST | `/api/v1/button-pages/{page_id}/buttons` | Create a button; `action_yaml` uses the script/automation action format; optional `icon` (≤8 chars) and `confirm` (the UI asks before running) (`buttons:manage`). |
 | PUT/DELETE | `/api/v1/button-pages/buttons/{button_id}` | Update/delete a button (`buttons:manage`). |
 | POST | `/api/v1/button-pages/buttons/{button_id}/press` | Run the button's actions on the leader's automation engine (`buttons:press`). |
 

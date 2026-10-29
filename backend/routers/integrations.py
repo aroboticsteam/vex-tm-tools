@@ -171,6 +171,20 @@ async def _to_read(
 # ── schemas endpoint ──────────────────────────────────────────────────────
 
 
+def _load_services(domain: str) -> dict[str, Any]:
+    """`{service: {description, fields: {name: {type, required}}}}` from the
+    domain's `services.yaml` (falling back to a `services:` block in the
+    manifest), so UIs can offer a service picker."""
+    path = INTEGRATIONS_DIR / domain / "services.yaml"
+    try:
+        loaded = yaml.safe_load(path.read_text()) if path.exists() else None
+    except Exception:
+        logger.exception("Failed to parse services.yaml for %s", domain)
+        loaded = None
+    services = (loaded or {}).get("services") if isinstance(loaded, dict) else None
+    return services if isinstance(services, dict) else {}
+
+
 @router.get("/schemas")
 async def list_integration_schemas() -> dict[str, Any]:
     """Lists each domain's `config_schema` from its `manifest.yaml` (plan
@@ -184,6 +198,7 @@ async def list_integration_schemas() -> dict[str, Any]:
             "description": manifest.get("description", ""),
             "requires_oauth": bool(manifest.get("requires_oauth", False)),
             "config_schema": manifest.get("config_schema", {}),
+            "services": _load_services(domain) or manifest.get("services") or {},
         }
         for domain, manifest in manifests.items()
     }

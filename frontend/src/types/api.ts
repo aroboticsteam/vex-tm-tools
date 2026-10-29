@@ -49,6 +49,18 @@ export interface IntegrationSchema {
   description: string;
   requires_oauth: boolean;
   config_schema: Record<string, ConfigFieldSchema>;
+  /** Callable services (from the domain's services.yaml). */
+  services?: Record<string, ServiceSchema>;
+}
+
+export interface ServiceFieldSchema {
+  type: string;
+  required?: boolean;
+}
+
+export interface ServiceSchema {
+  description?: string;
+  fields?: Record<string, ServiceFieldSchema>;
 }
 
 export type IntegrationSchemasResponse = Record<string, IntegrationSchema>;
@@ -443,6 +455,8 @@ export interface ButtonItem {
   color: string;
   position: number;
   action_yaml: string;
+  icon: string | null;
+  confirm: boolean;
 }
 
 export interface ButtonInput {
@@ -450,6 +464,8 @@ export interface ButtonInput {
   color: string;
   position: number;
   action_yaml: string;
+  icon?: string | null;
+  confirm?: boolean;
 }
 
 export interface ButtonPage {

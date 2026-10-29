@@ -346,3 +346,12 @@ async def test_config_change_published_on_create(client, cleanup_entities, fake_
     assert message is not None
     assert entity_id in message["data"]
     await pubsub.aclose()
+
+
+async def test_schemas_expose_service_catalog(client):
+    data = (await client.get("/api/v1/integrations/schemas")).json()
+    wled = data["wled"]["services"]
+    assert wled["set_color"]["fields"]["color"]["required"] is True
+    assert "flash" in wled and "description" in wled["flash"]
+    assert all(isinstance(d["services"], dict) for d in data.values())
+    assert "switch_input" in data["atem"]["services"]
