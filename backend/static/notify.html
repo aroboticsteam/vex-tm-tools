@@ -46,6 +46,13 @@
     <input type="search" id="filter" placeholder="Search teams…" autocomplete="off" />
     <div class="list" id="teams"></div>
     <div class="count" id="count"></div>
+    <fieldset id="cats" style="border:1px solid #262c3c;border-radius:8px;margin:.8rem 0 0;padding:.4rem .6rem">
+      <legend class="count">Notify me about</legend>
+      <label class="row"><input type="checkbox" data-cat="arrival" checked /> Upcoming matches</label>
+      <label class="row"><input type="checkbox" data-cat="late" checked /> Late warnings</label>
+      <label class="row"><input type="checkbox" data-cat="score" checked /> Match scores</label>
+      <label class="row"><input type="checkbox" data-cat="announcement" checked /> Event announcements (lunch, finals…)</label>
+    </fieldset>
     <button id="subscribe" disabled>Turn on notifications</button>
     <button id="unsubscribe" class="secondary" hidden>Turn off notifications</button>
   </section>
@@ -95,6 +102,16 @@
       row.appendChild(cb); row.appendChild(document.createTextNode(t)); list.appendChild(row);
     });
   }
+  function chosenCategories() {
+    var boxes = document.querySelectorAll('#cats input[data-cat]'), out = [];
+    boxes.forEach(function (b) { if (b.checked) out.push(b.getAttribute('data-cat')); });
+    return out;
+  }
+  function applyCategories(cats) {
+    document.querySelectorAll('#cats input[data-cat]').forEach(function (b) {
+      b.checked = !cats || cats.indexOf(b.getAttribute('data-cat')) !== -1;
+    });
+  }
   function updateButtons() {
     var n = Object.keys(selected).length;
     document.getElementById('count').textContent = n + ' selected';
@@ -113,7 +130,7 @@
       var sub = await reg.pushManager.getSubscription();
       if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
       var teams = Object.keys(selected);
-      await api('/api/v1/public/push/subscribe', { endpoint: sub.endpoint, keys: sub.toJSON().keys, room: ROOM, teams: teams });
+      await api('/api/v1/public/push/subscribe', { endpoint: sub.endpoint, keys: sub.toJSON().keys, room: ROOM, teams: teams, categories: chosenCategories() });
       subscribed = true;
       try { localStorage.setItem(STORE, JSON.stringify(teams)); } catch (e) {}
       show('You\'re all set — alerts on for: ' + teams.join(', '));
@@ -156,6 +173,7 @@
         var st = await api('/api/v1/public/push/status', { endpoint: existing.endpoint });
         if (st.subscribed && st.room === ROOM) {
           subscribed = true; selected = {}; st.teams.forEach(function (t) { selected[t] = true; });
+          applyCategories(st.categories);
           renderTeams();
         }
       }

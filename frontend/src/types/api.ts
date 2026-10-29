@@ -512,6 +512,8 @@ export interface AgendaItem {
   title: string;
   details: string | null;
   position: number;
+  /** Minutes before start to announce to rooms; null = default, 0 = never. */
+  announce_lead_minutes: number | null;
 }
 
 export interface StationMessage {

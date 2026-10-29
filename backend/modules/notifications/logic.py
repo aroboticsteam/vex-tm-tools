@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 STATE_SCORED = "SCORED"
@@ -176,6 +177,101 @@ def due_arrival_alerts(
             if -_LATE_GRACE_SECONDS <= delta <= lead_minutes * 60:
                 alerts.append(ArrivalAlert("minutes", m, minutes_away=max(0, math.ceil(delta / 60))))
     return alerts
+
+
+#: A late warning stops once a match is this many seconds overdue beyond the
+#: configured threshold — a long-abandoned match shouldn't page anyone, and a
+#: restart mid-event stays quiet about ancient history.
+_LATE_WINDOW_SECONDS = 1800
+
+
+@dataclass(frozen=True)
+class LateAlert:
+    match: ScheduledMatch
+    minutes_late: int
+
+    @property
+    def dedupe_key(self) -> str:
+        return f"late:{self.match.key}"
+
+
+def due_late_alerts(matches: list[ScheduledMatch], current_idx: int, now: float, late_minutes: int) -> list[LateAlert]:
+    """Matches that are `late_minutes` or more past their scheduled time and
+    still haven't reached the field (the field is behind them) or been
+    scored. `late_minutes` of 0 disables the warning."""
+    if late_minutes <= 0:
+        return []
+    threshold = late_minutes * 60
+    alerts: list[LateAlert] = []
+    for m in matches:
+        if m.scored or m.idx <= current_idx or m.time_scheduled is None:
+            continue
+        overdue = now - m.time_scheduled
+        if threshold <= overdue <= threshold + _LATE_WINDOW_SECONDS:
+            alerts.append(LateAlert(m, int(overdue // 60)))
+    return alerts
+
+
+def late_text(alert: LateAlert, own_teams: list[str] | None = None) -> tuple[str, str]:
+    m = alert.match
+    who = ", ".join(own_teams) if own_teams else ", ".join(m.teams)
+    return f"{m.label} is running late", f"{who} was due {alert.minutes_late} min ago. Head to the field now."
+
+
+@dataclass(frozen=True)
+class AgendaAnnouncement:
+    item_id: str
+    title: str
+    details: str | None
+    start_time: str
+    minutes_away: int
+    day: str  # YYYY-MM-DD in the event timezone
+
+    @property
+    def dedupe_key(self) -> str:
+        return f"agenda:{self.item_id}:{self.day}"
+
+
+def _minutes_of(hhmm: str) -> int | None:
+    try:
+        hours, minutes = hhmm.split(":")
+        return int(hours) * 60 + int(minutes)
+    except (ValueError, AttributeError):
+        return None
+
+
+def due_agenda_announcements(
+    items: list[Any], now_local: datetime, default_lead_minutes: int
+) -> list[AgendaAnnouncement]:
+    """Agenda items (anything with `id`, `title`, `details`, `start_time` as
+    "HH:MM" and `announce_lead_minutes`) whose lead window is open right now.
+
+    The window runs from `start - lead` until the start time has passed by a
+    short grace, so a tick that lands a little late still announces once."""
+    now_minutes = now_local.hour * 60 + now_local.minute + now_local.second / 60
+    out: list[AgendaAnnouncement] = []
+    for item in items:
+        lead = item.announce_lead_minutes if item.announce_lead_minutes is not None else default_lead_minutes
+        start = _minutes_of(item.start_time)
+        if lead <= 0 or start is None:
+            continue
+        away = start - now_minutes
+        if -2 <= away <= lead:
+            out.append(
+                AgendaAnnouncement(
+                    str(item.id), item.title, item.details, item.start_time, max(0, math.ceil(away)),
+                    now_local.date().isoformat(),
+                )
+            )
+    return out
+
+
+def agenda_text(a: AgendaAnnouncement) -> tuple[str, str]:
+    when = "starting now" if a.minutes_away <= 0 else f"at {a.start_time} (in ~{a.minutes_away} min)"
+    body = f"{a.title} {when}."
+    if a.details:
+        body += f" {a.details}"
+    return f"Coming up: {a.title}", body
 
 
 def newly_scored(matches: list[ScheduledMatch]) -> list[ScheduledMatch]:

@@ -46,6 +46,20 @@ class PushSubscriptionIn(BaseModel):
 class TeamSubscribe(PushSubscriptionIn):
     room: str = Field(..., pattern=SLUG_PATTERN)
     teams: list[str] = Field(..., min_length=1, max_length=MAX_TEAMS_PER_SUBSCRIPTION)
+    #: Alert categories to receive (`arrival`, `late`, `score`, `announcement`);
+    #: omitted = all of them. Staff broadcasts are always delivered.
+    categories: list[str] | None = Field(default=None, max_length=10)
+
+    @field_validator("categories")
+    @classmethod
+    def _known_categories(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        allowed = ("arrival", "late", "score", "announcement")
+        bad = [c for c in v if c not in allowed]
+        if bad:
+            raise ValueError(f"Unknown categories: {', '.join(bad)}")
+        return sorted(set(v))
 
     @field_validator("teams")
     @classmethod
@@ -72,6 +86,8 @@ class SubscriptionStatus(BaseModel):
     subscribed: bool
     room: str | None = None
     teams: list[str] = Field(default_factory=list)
+    #: Categories the subscriber receives (null = all).
+    categories: list[str] | None = None
 
 
 class VapidKey(BaseModel):

@@ -126,10 +126,10 @@ async def subscribe_team(
         raise HTTPException(status_code=422, detail=f"Teams not in this room: {', '.join(unknown)}")
 
     sub = await _upsert_subscription(db, body, kind=KIND_TEAM, user_agent=request.headers.get("user-agent"))
-    sub.room_slug, sub.user_subject, sub.categories = body.room, None, None
+    sub.room_slug, sub.user_subject, sub.categories = body.room, None, body.categories
     db.add_all(PushSubscriptionTeam(subscription_id=sub.id, team_number=t) for t in body.teams)
     await db.commit()
-    return SubscriptionStatus(subscribed=True, room=body.room, teams=body.teams)
+    return SubscriptionStatus(subscribed=True, room=body.room, teams=body.teams, categories=body.categories)
 
 
 @router.post("/public/push/status", response_model=SubscriptionStatus)
@@ -154,7 +154,7 @@ async def subscription_status(
             .order_by(PushSubscriptionTeam.team_number)
         )
     ).scalars()
-    return SubscriptionStatus(subscribed=True, room=sub.room_slug, teams=list(teams))
+    return SubscriptionStatus(subscribed=True, room=sub.room_slug, teams=list(teams), categories=sub.categories)
 
 
 @router.post("/public/push/unsubscribe", status_code=204, response_model=None)

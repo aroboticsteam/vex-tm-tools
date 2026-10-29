@@ -44,6 +44,14 @@ CATEGORY_SYSTEM = "system"
 CATEGORY_BROADCAST = "broadcast"
 STAFF_CATEGORIES = (CATEGORY_SYSTEM, CATEGORY_BROADCAST)
 
+#: What a team-facing subscriber can opt out of. Staff broadcasts always get
+#: through (they are urgent, event-wide messages), so they aren't a category.
+CATEGORY_ARRIVAL = "arrival"
+CATEGORY_LATE = "late"
+CATEGORY_SCORE = "score"
+CATEGORY_ANNOUNCEMENT = "announcement"
+TEAM_CATEGORIES = (CATEGORY_ARRIVAL, CATEGORY_LATE, CATEGORY_SCORE, CATEGORY_ANNOUNCEMENT)
+
 #: Subscriptions are dropped after this many consecutive non-gone failures.
 MAX_FAILURES = 5
 _PUSH_TTL_SECONDS = 600  # a "match in 3 min" push is useless after 10 min
@@ -183,12 +191,21 @@ async def send_push(session_factory: Any, targets: list[PushTarget]) -> int:
     return len(ok_ids)
 
 
+def _wants(sub: PushSubscription, category: str | None) -> bool:
+    # `categories` NULL = opted into everything.
+    return category is None or sub.categories is None or category in sub.categories
+
+
 async def team_subscriptions(
-    session_factory: Any, team_numbers: list[str] | tuple[str, ...], rooms: list[str] | None = None
+    session_factory: Any,
+    team_numbers: list[str] | tuple[str, ...],
+    rooms: list[str] | None = None,
+    category: str | None = None,
 ) -> list[tuple[PushSubscription, list[str]]]:
     """Team-kind subscriptions subscribed to any of `team_numbers` (optionally
-    restricted to subscriptions made from the given rooms), each paired with
-    the subset of `team_numbers` it follows."""
+    restricted to subscriptions made from the given rooms, and to those that
+    haven't opted out of `category`), each paired with the subset of
+    `team_numbers` it follows."""
     if not team_numbers:
         return []
     async with session_factory() as session:
@@ -202,16 +219,21 @@ async def team_subscriptions(
         rows = (await session.execute(stmt)).all()
     grouped: dict[uuid.UUID, tuple[PushSubscription, list[str]]] = {}
     for sub, team in rows:
+        if not _wants(sub, category):
+            continue
         grouped.setdefault(sub.id, (sub, []))[1].append(team)
     return [(sub, sorted(teams)) for sub, teams in grouped.values()]
 
 
-async def all_team_subscriptions(session_factory: Any, rooms: list[str] | None = None) -> list[PushSubscription]:
+async def all_team_subscriptions(
+    session_factory: Any, rooms: list[str] | None = None, category: str | None = None
+) -> list[PushSubscription]:
     async with session_factory() as session:
         stmt = select(PushSubscription).where(PushSubscription.kind == KIND_TEAM)
         if rooms is not None:
             stmt = stmt.where(PushSubscription.room_slug.in_(rooms))
-        return list((await session.execute(stmt)).scalars().all())
+        subs = list((await session.execute(stmt)).scalars().all())
+    return [s for s in subs if _wants(s, category)]
 
 
 async def staff_subscriptions(session_factory: Any, category: str) -> list[PushSubscription]:

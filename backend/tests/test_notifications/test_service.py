@@ -313,3 +313,132 @@ async def test_unparseable_cached_schedule_is_ignored(svc, fake_redis):
     await fake_redis.set(SCHEDULE_KEY, "{not json")
     assert await svc._load_schedules() == {}
     await svc.tick(NOW)  # must not raise
+
+
+# ── late warnings, agenda announcements, category opt-out (issue #22) ─
+
+
+async def test_late_warning_sent_once_to_room_and_follower(svc, session_factory, fake_redis, pushes, notif_settings):
+    await notif_settings({"team_alerts_enabled": True, "lead_matches_x": 0, "lead_minutes_y": 0, "scores_enabled": False,
+                          "late_minutes": 5, "agenda_announcements_enabled": False})
+    await seed_room(session_factory, teams=("1234A",))
+    await seed_sub(session_factory, "s1", teams=("1234A",))
+    await put_schedule(
+        fake_redis,
+        raw(1, ["1111A"], ["2222B"], at=NOW - 1200),
+        raw(2, ["1234A"], ["3333C"], at=NOW - 600),  # 10 min overdue, field hasn't reached it
+    )
+    await svc.handle_message(
+        delivery.EVENTS_CHANNEL,
+        json.dumps({"type": "fieldMatchAssigned", "payload": {"match": {"division": 1, "session": 0, "round": "QUAL", "instance": 1, "match": 1}}}),
+    )
+
+    await svc.tick(NOW)
+    notices = await room_notices(fake_redis, svc.listener)
+    assert [n["title"] for n in notices] == ["Q2 is running late"] and notices[0]["source"] == "late_alert"
+    assert len(pushes) == 1 and pushes[0].payload["kind"] == "late" and "10 min" in pushes[0].payload["body"]
+
+    pushes.clear()
+    await svc.tick(NOW + 1)
+    assert pushes == [] and await room_notices(fake_redis, svc.listener) == []
+
+
+async def test_late_warning_off_and_not_sent_once_on_field(svc, session_factory, fake_redis, notif_settings):
+    await notif_settings({"team_alerts_enabled": True, "lead_matches_x": 0, "lead_minutes_y": 0, "scores_enabled": False,
+                          "late_minutes": 0})
+    await seed_room(session_factory, teams=("1234A",))
+    await put_schedule(fake_redis, raw(2, ["1234A"], ["3333C"], at=NOW - 600))
+    await svc.tick(NOW)
+    assert await room_notices(fake_redis, svc.listener) == []
+
+    await notif_settings({"team_alerts_enabled": True, "lead_matches_x": 0, "lead_minutes_y": 0, "scores_enabled": False,
+                          "late_minutes": 5})
+    await svc.handle_message(
+        delivery.EVENTS_CHANNEL,
+        json.dumps({"type": "fieldMatchAssigned", "payload": {"match": {"division": 1, "session": 0, "round": "QUAL", "instance": 1, "match": 2}}}),
+    )
+    await svc.tick(NOW)
+    assert await room_notices(fake_redis, svc.listener) == []  # already on the field
+
+
+async def test_category_opt_out_skips_push(svc, session_factory, fake_redis, pushes, notif_settings):
+    await notif_settings({"team_alerts_enabled": True, "lead_matches_x": 0, "lead_minutes_y": 0, "scores_enabled": False,
+                          "late_minutes": 5, "agenda_announcements_enabled": False})
+    await seed_room(session_factory, teams=("1234A",))
+    await seed_sub(session_factory, "wants-late", teams=("1234A",), categories=["late"])
+    await seed_sub(session_factory, "no-late", teams=("1234A",), categories=["score"])
+    await seed_sub(session_factory, "all", teams=("1234A",), categories=None)
+    await put_schedule(fake_redis, raw(2, ["1234A"], ["3333C"], at=NOW - 600))
+    await svc.tick(NOW)
+    assert sorted(t.endpoint for t in pushes) == sorted([VALID_ENDPOINT + "wants-late", VALID_ENDPOINT + "all"])
+
+
+@pytest.fixture
+async def agenda_rows(session_factory):
+    from sqlalchemy import delete
+
+    from backend.models.comms import AgendaItem
+
+    async def _wipe():
+        async with session_factory() as session:
+            await session.execute(delete(AgendaItem))
+            await session.commit()
+
+    await _wipe()
+
+    async def _add(start, title, **kw):
+        async with session_factory() as session:
+            session.add(AgendaItem(scope="day", start_time=start, title=title, **kw))
+            await session.commit()
+
+    yield _add
+    await _wipe()
+
+
+async def test_agenda_announcement_all_rooms_once_in_event_timezone(
+    svc, session_factory, fake_redis, pushes, notif_settings, agenda_rows
+):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    zone = ZoneInfo("Europe/London")
+    now = datetime(2026, 10, 29, 12, 55, tzinfo=zone).timestamp()
+    await notif_settings({"team_alerts_enabled": False, "agenda_announcements_enabled": True,
+                          "agenda_lead_minutes": 10, "timezone": "Europe/London"})
+    await seed_room(session_factory, slug="r1")
+    await seed_room(session_factory, slug="r2", teams=("9999Z",))
+    await seed_sub(session_factory, "t1", teams=("1234A",))
+    await seed_sub(session_factory, "opted-out", teams=("1234A",), categories=["score"])
+    await agenda_rows("13:00", "Lunch", details="Cafeteria")
+    await agenda_rows("15:00", "Finals", announce_lead_minutes=0)
+
+    await svc.tick(now)
+    notices = await room_notices(fake_redis, svc.listener)
+    assert len(notices) == 1 and notices[0]["rooms"] == ["r1", "r2"] and notices[0]["source"] == "announcement"
+    assert notices[0]["title"] == "Coming up: Lunch" and "Cafeteria" in notices[0]["message"]
+    assert [t.endpoint for t in pushes] == [VALID_ENDPOINT + "t1"] and pushes[0].payload["kind"] == "announcement"
+
+    pushes.clear()
+    await svc.tick(now + 30)
+    assert pushes == [] and await room_notices(fake_redis, svc.listener) == []
+
+
+async def test_agenda_disabled_and_bad_timezone(svc, session_factory, fake_redis, notif_settings, agenda_rows):
+    from datetime import datetime, timezone
+
+    await seed_room(session_factory)
+    await agenda_rows("12:00", "Lunch")
+    utc_noon_minus_5 = datetime(2026, 10, 29, 11, 55, tzinfo=timezone.utc).timestamp()
+    await notif_settings({"team_alerts_enabled": False, "agenda_announcements_enabled": False})
+    await svc.tick(utc_noon_minus_5)
+    assert await room_notices(fake_redis, svc.listener) == []
+
+    await notif_settings({"team_alerts_enabled": False, "agenda_announcements_enabled": True, "timezone": "Not/AZone"})
+    await svc.tick(utc_noon_minus_5)  # falls back to UTC rather than crashing
+    assert len(await room_notices(fake_redis, svc.listener)) == 1
+
+
+async def test_alert_settings_parse_new_fields():
+    s = AlertSettings.from_value({"late_minutes": 999, "agenda_lead_minutes": "x", "timezone": ""})
+    assert s.late_minutes == 60 and s.agenda_lead_minutes == 10 and s.timezone == "UTC"
+    assert AlertSettings.from_value(None).late_minutes == 5

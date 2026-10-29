@@ -149,7 +149,7 @@ Team-facing endpoints are **public** (no login) — they are used from phones th
 |---|---|---|
 | GET | `/api/v1/public/rooms/{slug}` | Public room info: name, stream URL, team list (used by the room and subscribe pages). |
 | GET | `/api/v1/public/push/vapid-key` | VAPID public key for `pushManager.subscribe`; 503 if push is not configured. |
-| POST | `/api/v1/public/push/subscribe` | Follow teams: `endpoint`, `keys{p256dh,auth}`, `room`, `teams[]`. Teams must belong to the room. Re-posting the same endpoint replaces its team list. |
+| POST | `/api/v1/public/push/subscribe` | Follow teams: `endpoint`, `keys{p256dh,auth}`, `room`, `teams[]`. Teams must belong to the room. Optional `categories[]` (`arrival`, `late`, `score`, `announcement`; omitted = all) lets a subscriber opt out of alert types — broadcasts always get through. Re-posting the same endpoint replaces its team list and categories. |
 | POST | `/api/v1/public/push/status` | `{endpoint}` → `{subscribed, room, teams}`. |
 | POST | `/api/v1/public/push/unsubscribe` | `{endpoint}` → 204. |
 | POST | `/api/v1/notifications/staff/subscribe` | Register this browser for staff alerts (`notifications:receive`); optional `categories` (`system`, `broadcast`). |
@@ -236,7 +236,7 @@ Staff (`comms:read` / `comms:send` / `comms:manage`):
 | GET/POST | `/api/v1/comms/stations` | List / create stations (`manage` to write). |
 | PUT/DELETE | `/api/v1/comms/stations/{slug}` | Update / delete a station. |
 | GET/POST, PUT/DELETE | `/api/v1/comms/presets[/{id}]` | Canned messages (optionally per role, optionally flashing). |
-| GET/POST, PUT/DELETE | `/api/v1/comms/agenda[/{id}]` | Day / finals agenda items. |
+| GET/POST, PUT/DELETE | `/api/v1/comms/agenda[/{id}]` | Day / finals agenda items. `announce_lead_minutes` (null = default, 0 = never) schedules an automatic room + push announcement before `start_time` (event timezone set in the `notifications` setting). |
 | POST | `/api/v1/comms/send` | Send text (optional flash) to stations, roles or everyone. |
 | POST | `/api/v1/comms/screen` | Push a screen (`messages`, `countdown`, `agenda_day`, `agenda_finals`); stations whose role can't show it are skipped. |
 | GET | `/api/v1/comms/inbox` | Messages typed on iPads (`?unacknowledged=true`). |
@@ -257,3 +257,8 @@ Unauthenticated, display-safe. The page itself is at `/site` (hash-routed: `#eve
 | GET | `/api/v1/public/site/teams` | Team cards (name, organisation, location, division, ranks, pit). |
 | GET | `/api/v1/public/site/teams/{number}` | Profile: current stats, season history, schedule, robot 360 / team clips. Never includes staff notes. |
 | GET | `/api/v1/public/site/livestreams` | Rooms that have a stream URL. |
+
+### Automatic alert settings (`notifications` system setting)
+
+`late_minutes` (default 5, 0 = off): warn a match's teams when it is this overdue and the field has not reached it.
+`agenda_announcements_enabled` / `agenda_lead_minutes` (default 10) / `timezone` (IANA, default `UTC`): announce agenda items to every room and to subscribers who kept the `announcement` category.

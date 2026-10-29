@@ -392,7 +392,10 @@ function AgendaModal({
   const [end, setEnd] = useState(existing?.end_time ?? '');
   const [title, setTitle] = useState(existing?.title ?? '');
   const [details, setDetails] = useState(existing?.details ?? '');
-  const valid = TIME_PATTERN.test(start) && (!end || TIME_PATTERN.test(end)) && !!title.trim();
+  const [announce, setAnnounce] = useState(existing?.announce_lead_minutes == null ? '' : String(existing.announce_lead_minutes));
+  const announceNum = announce.trim() === '' ? null : Number(announce);
+  const announceOk = announceNum === null || (Number.isInteger(announceNum) && announceNum >= 0 && announceNum <= 240);
+  const valid = announceOk && TIME_PATTERN.test(start) && (!end || TIME_PATTERN.test(end)) && !!title.trim();
   return (
     <Modal open={editing !== null} onClose={onClose} title={existing ? 'Edit agenda item' : `New ${scope} agenda item`}>
       <div className="space-y-3">
@@ -402,6 +405,10 @@ function AgendaModal({
         </div>
         <div><Label>Title</Label><Input value={title} onChange={(e) => setTitle(e.target.value)} /></div>
         <div><Label>Details (optional)</Label><Input value={details} onChange={(e) => setDetails(e.target.value)} /></div>
+        <div>
+          <Label>Announce to rooms N minutes before (blank = default, 0 = never)</Label>
+          <Input type="number" min={0} max={240} value={announce} onChange={(e) => setAnnounce(e.target.value)} />
+        </div>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button
@@ -409,7 +416,7 @@ function AgendaModal({
             disabled={!valid || save.isPending}
             onClick={() =>
               save.mutate(
-                { id: existing?.id, body: { scope: existing?.scope ?? scope, start_time: start, end_time: end || null, title: title.trim(), details: details.trim() || null, position: existing?.position ?? 0 } },
+                { id: existing?.id, body: { scope: existing?.scope ?? scope, start_time: start, end_time: end || null, title: title.trim(), details: details.trim() || null, position: existing?.position ?? 0, announce_lead_minutes: announceNum } },
                 { onSuccess: onClose, onError: errorToast(pushToast) },
               )
             }

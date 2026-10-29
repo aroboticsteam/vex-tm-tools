@@ -148,3 +148,65 @@ def test_match_key_from_tuple_matches_parse():
     tup = {"division": 1, "session": 0, "round": "QUAL", "instance": 1, "match": 7}
     m = sched(raw_match(7, ["A"], ["B"]))[0]
     assert logic.match_key_from_tuple(tup) == m.key
+
+
+# ── late warnings (issue #22) ────────────────────────────────────────
+
+
+def test_late_alert_only_for_overdue_unstarted_matches():
+    from backend.modules.notifications.logic import due_late_alerts, late_text
+
+    matches = sched(
+        raw_match(1, ["1A"], ["2B"], at=NOW - 3600, state="SCORED", score=(1, 2)),
+        raw_match(2, ["3C"], ["4D"], at=NOW - 600),   # on the field (current)
+        raw_match(3, ["5E"], ["6F"], at=NOW - 420),   # 7 min overdue, behind the field
+        raw_match(4, ["7G"], ["8H"], at=NOW - 60),    # only 1 min overdue
+        raw_match(5, ["9I"], ["10J"], at=NOW + 600),  # not due yet
+    )
+    current = current_index(matches, matches[1].key)
+    alerts = due_late_alerts(matches, current, NOW, late_minutes=5)
+    assert [a.match.match_num for a in alerts] == [3]
+    assert alerts[0].minutes_late == 7 and alerts[0].dedupe_key == f"late:{matches[2].key}"
+    title, body = late_text(alerts[0], ["5E"])
+    assert "Q3" in title and "5E" in body and "7 min" in body
+    assert due_late_alerts(matches, current, NOW, late_minutes=0) == []
+
+
+def test_late_alert_expires_after_window():
+    from backend.modules.notifications.logic import due_late_alerts
+
+    matches = sched(raw_match(1, ["1A"], ["2B"], at=NOW - 3 * 3600))
+    assert due_late_alerts(matches, -1, NOW, late_minutes=5) == []
+
+
+# ── agenda announcements (issue #22) ─────────────────────────────────
+
+
+class FakeItem:
+    def __init__(self, id, start, title="Lunch", lead=None, details=None):
+        self.id, self.start_time, self.title, self.details, self.announce_lead_minutes = id, start, title, details, lead
+
+
+def test_agenda_announcement_window_and_overrides():
+    from datetime import datetime, timezone
+
+    from backend.modules.notifications.logic import agenda_text, due_agenda_announcements
+
+    now = datetime(2026, 10, 29, 11, 52, 0, tzinfo=timezone.utc)
+    items = [
+        FakeItem("a", "12:00"),                      # 8 min away, default lead 10 -> due
+        FakeItem("b", "12:30"),                      # 38 min away -> not yet
+        FakeItem("c", "12:30", lead=60),             # per-item lead covers it
+        FakeItem("d", "12:00", lead=0),              # never announced
+        FakeItem("e", "11:51", details="Bring lanyards"),  # just started, inside grace
+        FakeItem("f", "09:00"),                      # long past
+        FakeItem("g", "bogus"),
+    ]
+    due = due_agenda_announcements(items, now, default_lead_minutes=10)
+    assert sorted(a.item_id for a in due) == ["a", "c", "e"]
+    first = next(a for a in due if a.item_id == "a")
+    assert first.minutes_away == 8 and first.dedupe_key == "agenda:a:2026-10-29"
+    assert agenda_text(first)[1].startswith("Lunch at 12:00")
+    started = next(a for a in due if a.item_id == "e")
+    assert "starting now" in agenda_text(started)[1] and "Bring lanyards" in agenda_text(started)[1]
+    assert due_agenda_announcements(items, now, default_lead_minutes=0)[0].item_id == "c"
