@@ -13,6 +13,7 @@ from backend.models.notification import NotificationLog, PushSubscription, PushS
 from backend.models.overlay import OverlayInstance  # noqa: F401
 from backend.models.room import Room, RoomTeam  # noqa: F401
 from backend.models.settings import ApiKey, RolePermission, SystemSetting  # noqa: F401
+from backend.models.button_page import Button, ButtonPage  # noqa: F401
 from backend.models.team import TeamProfile  # noqa: F401
 from backend.models.timer import PrompterCue, TimerInstance  # noqa: F401
 
@@ -30,6 +31,8 @@ __all__ = [
     "PushSubscriptionTeam",
     "OverlayInstance",
     "Room",
+    "Button",
+    "ButtonPage",
     "RoomTeam",
     "ApiKey",
     "RolePermission",

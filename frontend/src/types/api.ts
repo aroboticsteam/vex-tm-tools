@@ -433,3 +433,36 @@ export interface BroadcastResult {
 }
 
 export type StaffCategory = 'system' | 'broadcast';
+
+// ── Button pages (issue #11) ──────────────────────────────────────────
+
+export interface ButtonItem {
+  id: string;
+  page_id: string;
+  label: string;
+  color: string;
+  position: number;
+  action_yaml: string;
+}
+
+export interface ButtonInput {
+  label: string;
+  color: string;
+  position: number;
+  action_yaml: string;
+}
+
+export interface ButtonPage {
+  id: string;
+  name: string;
+  position: number;
+  columns: number;
+  buttons: ButtonItem[];
+}
+
+export interface PressResult {
+  status: 'success' | 'failed';
+  error: string | null;
+  failed_action_index: number | null;
+  actions_executed: number;
+}

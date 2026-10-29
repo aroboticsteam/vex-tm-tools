@@ -354,6 +354,22 @@ class AutomationEngine:
             "action_results": action_results,
         }
 
+    async def run_actions(self, actions: list[dict[str, Any]], source_id: uuid.UUID, context: dict | None = None) -> dict:
+        """Runs an ad-hoc action chain (e.g. a button-page button press)
+        immediately, using the same context/globals as a manual automation
+        trigger. Not logged to `automation_runs`; the caller reports the
+        outcome."""
+        extra = dict(context) if context else {}
+        eval_context = self._build_manual_context(source_id, extra, await self._build_state_cache())
+        ok, error, failed_index, executed, action_results = await self._execute_action_chain(actions, eval_context)
+        return {
+            "status": "success" if ok else "failed",
+            "failed_action_index": failed_index,
+            "error": error,
+            "actions_executed": executed,
+            "action_results": action_results,
+        }
+
     # ── YAML parsing ─────────────────────────────────────────────────────
 
     def _parse_automation_yaml(

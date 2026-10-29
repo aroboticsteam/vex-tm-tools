@@ -203,3 +203,15 @@ for path, methods in sorted(d['paths'].items()):
 ```
 
 or open `/docs` for the full interactive Swagger UI.
+
+
+## Button Pages (`/api/v1/button-pages`, issue #11)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/button-pages` | List pages with their buttons (`buttons:read`). |
+| POST | `/api/v1/button-pages` | Create a page (`buttons:manage`). |
+| PUT/DELETE | `/api/v1/button-pages/{page_id}` | Update/delete a page (`buttons:manage`). |
+| POST | `/api/v1/button-pages/{page_id}/buttons` | Create a button; `action_yaml` uses the script/automation action format (`buttons:manage`). |
+| PUT/DELETE | `/api/v1/button-pages/buttons/{button_id}` | Update/delete a button (`buttons:manage`). |
+| POST | `/api/v1/button-pages/buttons/{button_id}/press` | Run the button's actions on the leader's automation engine (`buttons:press`). |
