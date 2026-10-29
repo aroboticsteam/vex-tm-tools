@@ -503,12 +503,43 @@ export interface TeamClips {
 // ── Comms: stations, presets, agenda, inbox (issue #8) ─────────────────
 
 export type StationRole = 'emcee' | 'floor_manager' | 'camera';
-export type CommsScreen = 'messages' | 'countdown' | 'agenda_day' | 'agenda_finals';
+export type CommsScreen = 'messages' | 'countdown' | 'timer' | 'agenda_day' | 'agenda_finals';
 
 export interface Station {
   slug: string;
   name: string;
   role: StationRole;
+  /** The link needs the station key (and the PIN too when `has_pin`). */
+  secured: boolean;
+  has_pin: boolean;
+  /** An iPad page is connected right now / when one last pinged (epoch s). */
+  connected: boolean;
+  last_seen: number | null;
+}
+
+export interface StationLink {
+  access_key: string;
+  path: string;
+}
+
+export type TimerAction = 'start' | 'pause' | 'resume' | 'stop' | 'adjust';
+
+export interface TimerRequest {
+  stations?: string[];
+  roles?: StationRole[];
+  action: TimerAction;
+  mode?: 'countdown' | 'countup';
+  duration_seconds?: number;
+  label?: string;
+  warn_seconds?: number;
+  critical_seconds?: number;
+  adjust_seconds?: number;
+}
+
+export interface AgendaImportResult {
+  created: number;
+  errors: { line: number; error: string }[];
+  items: { start_time: string; end_time: string | null; title: string; details: string | null }[];
 }
 
 export interface CommsPreset {

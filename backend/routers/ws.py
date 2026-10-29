@@ -34,6 +34,8 @@ from backend.core.security import validate_prompter_token
 from backend.core.sessions import SESSION_COOKIE_NAME, get_session, unsign_session_id
 from backend.models.overlay import OverlayInstance
 from backend.models.comms import Station
+from backend.modules.comms import access as station_access
+from backend.modules.comms import presence as station_presence
 from backend.models.room import Room
 from backend.models.timer import PrompterCue, TimerInstance
 
@@ -189,7 +191,7 @@ class ConnectionManager:
             await self._dispatch_upcoming_match(data)
         elif event_type == "room_notice":
             await self._dispatch_room_notice(data)
-        elif event_type in ("station_message", "station_screen"):
+        elif event_type in ("station_message", "station_screen", "station_timer"):
             await self._dispatch_station_event(event_type, data)
         elif event_type == "overlay_show_team" and entity_id:
             await self._dispatch_overlay_show_team(entity_id, data)
@@ -206,6 +208,8 @@ class ConnectionManager:
                 "flash": bool(payload.get("flash")),
                 "sent_at": payload.get("sent_at", data.get("timestamp", time.time())),
             }
+        elif event_type == "station_timer":
+            out = {"type": "timer", "timer": payload.get("timer"), "server_time": payload.get("server_time", time.time())}
         else:
             out = {"type": "screen", "screen": payload.get("screen")}
         for slug in payload.get("stations") or []:
@@ -469,15 +473,22 @@ async def ws_station(websocket: WebSocket, slug: str) -> None:
     if station is None:
         await websocket.close(code=WS_CLOSE_POLICY_VIOLATION, reason="Unknown station")
         return
+    params = websocket.query_params
+    if station_access.check_access(station, params.get("k"), params.get("t")):
+        await websocket.close(code=WS_CLOSE_POLICY_VIOLATION, reason="Station link is not valid")
+        return
     bucket = f"{STATION_BUCKET_PREFIX}{slug}"
     await manager.connect(bucket, websocket)
+    await station_presence.mark_connected(redis_client, slug)
     try:
         while True:
             await websocket.receive_text()  # keepalive pings from the page
+            await station_presence.touch(redis_client, slug)
     except WebSocketDisconnect:
         pass
     finally:
         await manager.disconnect(bucket, websocket)
+        await station_presence.mark_disconnected(redis_client, slug)
 
 
 # ── /ws/prompter/{entity_id} ──────────────────────────────────────────
