@@ -1,0 +1,41 @@
+services:
+  set_channels:
+    description: Set a run of DMX channels (values 0-255) starting at a channel (1-512).
+    fields:
+      start:
+        type: integer
+        required: true
+      values:
+        type: array
+        required: true
+  set_slider:
+    description: Set one channel/slider to a level (0-255) or a percent (0-100).
+    fields:
+      channel:
+        type: integer
+        required: true
+      level:
+        type: integer
+        required: false
+      percent:
+        type: number
+        required: false
+  fade:
+    description: Fade one channel/slider to a level (0-255) or percent (0-100) over
+      a duration.
+    fields:
+      channel:
+        type: integer
+        required: true
+      level:
+        type: integer
+        required: false
+      percent:
+        type: number
+        required: false
+      duration_ms:
+        type: integer
+        required: true
+  blackout:
+    description: Set every channel in the universe to 0 and cancel running fades.
+    fields: {}
