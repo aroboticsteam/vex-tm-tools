@@ -1,6 +1,6 @@
 # TMTools (QEComp) — Source of Truth
 
-**Last verified against the codebase:** 2026-10-30 (`main` @ `b947961`, Alembic head `a8b9c1d2e3f4`)
+**Last verified against the codebase:** 2026-10-30 (`main` @ `c832fb6`, Alembic head `a8b9c1d2e3f4`)
 
 This is the single authoritative description of what is in this repository: architecture, decisions, data model, API surface, RBAC, frontend, deployment and tests. It replaces `tm_update_plan.md` (the original v3.0 rewrite plan). Where the old plan and the code disagreed, **the code wins** and this document records the code.
 
@@ -44,7 +44,7 @@ A VEX competition-control system. It connects to one or more VEX Tournament Mana
 
 - an EMCEE **teleprompter** (server-synced timer, cues, match preview);
 - **OBS overlays** with Robot 360 videos and team spotlight;
-- **team profiles** (TM + Robot Events scraper, AI "high potential" flag, video/clip pipeline);
+- **team profiles** (TM + VEX Events scraper, AI "high potential" flag, video/clip pipeline);
 - **rooms** with public displays, QR codes and **Web Push** team/staff notifications;
 - **desk ↔ iPad comms** (stations, messages, screens, timers, agenda);
 - **button pages** (Stream-Deck-style action buttons);
@@ -85,7 +85,7 @@ It is a full rewrite of the original single-instance Flask/JSON-file tool into a
 │   │   ├── leader.py            Redis lock leader election
 │   │   ├── automation/engine.py YAML + Jinja2 engine
 │   │   ├── timer/manager.py     Timer-Teleprompter manager
-│   │   ├── scraper/scraper.py   TM + Robot Events scraper
+│   │   ├── scraper/scraper.py   TM + VEX Events API scraper
 │   │   ├── predictor/           OPR regression + high-potential flag
 │   │   ├── media/               ffmpeg processor, S3 helpers, image helpers
 │   │   ├── notifications/       logic (pure), service (leader loop), delivery (Web Push)
@@ -173,7 +173,7 @@ TM server ──WS/REST──▶ vex_tm integration ──▶ qecomp:events (Red
 | Key | Contents |
 |---|---|
 | `s3` | endpoint, public endpoint, bucket, access key, secret key, region |
-| `robot_events_api` | `{token}` for the RobotEvents API |
+| `robot_events_api` | `{token}` for the **VEX Events API** (events.vex.com, the successor to the RobotEvents API; base `https://events.vex.com/api/v2`). The key keeps its old name |
 | `predictor` | `{high_potential_threshold_pct}` (default 15) |
 | `chroma_key_defaults` | `{colour:"#00B140", similarity:0.1, blend:0.05}` |
 | `notifications` | ntfy (`server_url`, `topic`, `enabled`) **and** team-alert settings: `team_alerts_enabled`, `lead_matches_x` (3), `lead_minutes_y` (15), `scores_enabled`, `scores_excluded_rounds` (`["F"]`), `late_minutes` (5, 0=off), `agenda_announcements_enabled`, `agenda_lead_minutes` (10), `timezone` (IANA, default UTC) |
@@ -248,7 +248,7 @@ Migrations: single linear head `a8b9c1d2e3f4` (CI fails on multiple heads). Seed
 | `type` | Source | Notable payload |
 |---|---|---|
 | `fieldMatchAssigned` | vex_tm (payload enriched from cached schedule) | `fieldID`, `matchNum`, `round`, `redTeams[]`, `blueTeams[]`, `divisionId` (+ raw `match` tuple) |
-| `fieldActivated`, `matchStarted`, `matchStopped`, `audienceDisplayChanged` | vex_tm (TM WS passthrough) | `fieldID`, `matchNum`, `round`, … |
+| `fieldActivated`, `matchStarted`, `matchStopped`, `audienceDisplayChanged` | vex_tm (TM WS passthrough) | `fieldID`, `matchNum`, `round`, …; `audienceDisplayChanged` carries `display` (e.g. `IN_MATCH`, `RANKINGS`; the TM docs show no `fieldID` for it) |
 | `timer_started`, `timer_milestone`, `timer_finished`, `timer_stopped` | TimerManager | `field_set_id`, `field_id`, `remaining`, `elapsed`, `duration_s` |
 | `team_profile_updated` | Scraper | `team_number` |
 | `match_prediction` | Predictor | `high_potential` (+ internal predicted scores — never forwarded to UIs) |
@@ -346,7 +346,7 @@ Every integration, timer and overlay instance has a system-wide unique `entity_i
 
 ### 10.2 Scraper and predictor
 
-- **Scraper** (`fieldMatchAssigned` → ensure profiles exist): pulls TM data (teams, QUAL rankings, skills, matches, event) using its own `httpx` client with the bearer token from `qecomp:tm:<entity_id>:token`, and Robot Events data (bio, robot name, previous seasons, world/UK skills) using the token from Settings. Writes `team_profiles` (`cached_stats` JSONB), caches 24h, emits `team_profile_updated`. Teams are also created from the schedule (Match Control).
+- **Scraper** (`fieldMatchAssigned` → ensure profiles exist): pulls TM data (teams, QUAL rankings, skills, matches, event) using its own `httpx` client with the bearer token from `qecomp:tm:<entity_id>:token`, and VEX Events API data (events.vex.com; bio, robot name, previous seasons, world/UK skills) using the token from Settings. Writes `team_profiles` (`cached_stats` JSONB), caches 24h, emits `team_profile_updated`. Teams are also created from the schedule (Match Control).
 - **Predictor** (`fieldMatchAssigned` → `match_prediction`): local OPR least-squares (numpy) over scored matches; flags "high potential" if predicted combined alliance score is above the configured top-X% threshold; falls back to Robot Events data before in-event scores exist. Only the flag is user-visible.
 
 ### 10.3 Media pipeline
@@ -598,7 +598,7 @@ Authentik setup: [`docs/AUTHENTIK_SETUP.md`](docs/AUTHENTIK_SETUP.md) (OAuth2/OI
 | `/comms` | Comms | stations, presets, send, screens, timers, agenda, inbox |
 | `/buttons` | ButtonPages | visual action builder, drag-and-drop, icons, confirm, press |
 | `/audit` | AuditLog | filters (user, action, resource, date), live append via WS |
-| `/settings` | Settings | S3, Robot Events token, predictor threshold, chroma defaults, notifications/ntfy + team alerts, prompter index token, API keys, site config + images, match recordings |
+| `/settings` | Settings | S3, VEX Events API token, predictor threshold, chroma defaults, notifications/ntfy + team alerts, prompter index token, API keys, site config + images, match recordings |
 | `/users` | Users | group → permission mapping, force logout |
 | `/debug/integration-log`, `/debug/event-bus` | Debug views | `settings:edit`; visible in the navbar to those users |
 
@@ -695,8 +695,31 @@ Honest list of things that do not match the original plan or each other. Fix and
 - **Python version drift:** Dockerfile uses 3.12; CI and the README badge say 3.13.
 - **Stale text:** `.env.example` header says "QEComp"/"later wave"; `docs/API.md` is a generated snapshot that may lag the routers; the README "Node 20" badge differs from CI's Node 22. Source-code comments throughout still cite the old plan's section numbers (e.g. "plan §5.8", "Appendix C.2") — those refer to the removed `tm_update_plan.md`; the equivalent content is in this file.
 - **Plan items not in the shipped design:** Redis Sentinel client config (infra handles it), a standalone Field Monitor page (merged into Match Control), a top-level `tests/` dir (tests are in `backend/tests/`), `k8s` Postgres/Redis manifests (external), `userManager.py`/JSON storage (removed), `docs/API.md` hand-written (generated).
-- **Unverified:** Mumble manifest in a real cluster; BirdDog X1 PTZ compatibility; push-to-talk on iPad; exact behaviour of every WS message type was summarised from `routers/ws.py`, not exhaustively tested.
+- **Unverified:** the **VEX Events API** scraper has not been tested against the live service (issue #29; the TM integration *has* been tested against a live TM server); WLED/OSC/PTZ on real hardware and BirdDog X1 VISCA support (the tracking issue #20 was closed as not planned, so this is untracked); Mumble manifest in a real cluster; push-to-talk on iPad; exact behaviour of every WS message type was summarised from `routers/ws.py`, not exhaustively tested.
 - **Design decision still open:** whether `/ws/events` should enforce per-permission filtering (currently any authenticated session; gating is client-side).
+
+### 22.1 Planned work (GitHub issues)
+
+> **Planned deployment change (not yet implemented, #46):** the server is moving from k3s to plain Docker on a Raspberry Pi, with Garage (S3-compatible) replacing MinIO. The k8s/MinIO descriptions elsewhere in this file stay accurate for the current code until that lands. The replay chain only assumes an S3 API with presigned URLs (the existing helper in `backend/modules/media/s3.py` already uses path-style addressing and `S3_PUBLIC_ENDPOINT_URL`).
+
+Not implemented yet. Decisions recorded here are agreed; implementation details marked *proposal* are not.
+
+| Issue | Planned work | Decisions so far |
+|---|---|---|
+| #13 | **Overlay rework** | VRC pre-match 2×2 (red left / blue right, **square** transparent robot videos, large VS low in the frame, match-number banner on top, flag badge in each cell's outer top corner); IQ pre-match: 2 teams, same panel size, light blue (same as VRC blue), no VS; single-team spotlight: square robot 360 directly above a red label bar (number, name, flag at right end), keyed `team` clip on the right. Text dark gold `#b8860b` (including the match number). All overlays fully transparent (OBS browser source, 1920×1080); no crown in the overlay (background comes from OBS). Long names run under the robot square. Needs per-team flag/country. Mockup HTML is attached to the issue. Open: sponsor logo, deadline |
+| #40 | Pre-results graphics | **No new code**: one automation triggered by the `audienceDisplayChanged` event with `display == RESULTS`, calling `obs.switch_scene` (optionally `atem.switch_input`); needs an example documented and the `RESULTS` value confirmed on a live TM |
+| #45 | **Local ffmpeg capture agent** (on the AV laptop, outside the server deployment) | Main capture method for recording and replay: reads the webcam feed the ATEM provides to the laptop, encodes H.264 (1 s keyframes), records locally first, uploads to the S3-compatible store with presigned PUT URLs (path-style, public endpoint), cuts clips on request. Connects outward over WebSocket (`/ws/agent`) with a scoped `qec_` key; controlled via a new `capture` integration (`start_recording`/`stop_recording`/`mark_moment`). Layout `{matchType}/{matchNumber}/match.mp4` + `segments/moment-N.mp4`; kept indefinitely. Not involved in playback; may run on a different machine from OBS. Open: packaging, permission names |
+| #46 | Deployment move | k3s to plain Docker Compose on a Raspberry Pi; Garage replaces MinIO (single node, first-run layout/bucket/key init); Mumble becomes a Compose service; arm64 images; re-check single-instance leader election. Replay chain does not block on it |
+| #42 | Match recording + per-team tagging | Recordings come from the #45 agent (not OBS); tagged with the match key and the teams; shown per team on the public site / team profiles. Replaces manual URL import as the source of `match_recordings` |
+| #38 | Instant replay | Finals only; marks key moments from the analysis deck (last 3s / 5s / 10s buttons, keyboard-mappable; exact timestamp stamped on the agent's recording clock) and cuts clips from the match recording, uploaded to `{matchType}/{matchNumber}/segments/moment-N`; LED-flash button; moments saved to team profiles; blank slate each match. Depends on #45 and #42 |
+| #41 | Analysis/host desk | Finals only; stats screen (2 teams IQ / 4 teams VRC per page, arrows or match-number entry) plus a match screen (live program feed and mark buttons during the match; after the match, moment list and full video, send to program = the server tells a replay player page (an OBS browser source served by the web server, streaming from the object store via presigned GET URLs) to play it, and the deck switches OBS to that scene via `obs.switch_scene`; a video must be uploaded before it can be played; pause, speed 0.5× default / 0.25 / 0.75 / 1×). Never shows predicted scores. Depends on #38, #45, #42 |
+| #39 | **Art-Net integration** (`artnet`) | Drive MagicQ virtual sliders; continues the "we are using MagicQ" decision from #6; needs a `_DOMAIN_PERMISSIONS` entry (likely `vfx:control`) |
+| #43 | Team checklist | Inspection, 360 bot video, team video; inspection status source undecided |
+| #44 | Pit admin / lost & found alerts | Targeted per-team push; reuse the notifications system |
+| #29 | Validate VEX Events API against the live service | Open; also refresh `backend/tests/mock_tm_server.py` |
+| #23, #21, #26 | Real-device verification | Recorder 60fps, push on iOS/Chrome/Edge, iPads + Mumble |
+
+Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shearly light mapping (covered by MagicQ via #39), UWB location tracking, a self-hosted livestream, live polls/trivia, NDI.
 
 ## 23. Change history
 
@@ -704,4 +727,4 @@ Honest list of things that do not match the original plan or each other. Fix and
 - **Rewrite delivered** in waves (core → loader/integrations → engine/timers → routers/WS → frontend → scraper/predictor/media), then QA-pass fixes (leader failover, save-time validation, automation reporting, RobotEvents API migration, hot-reload, S3 settings, security audit fixes).
 - **TMTools rebrand** of user-visible text; AGPL-3.0 licence; separate `:backend`/`:frontend` images; Match Control absorbs Field Monitor.
 - **Feature additions (issue/PR):** notifications & rooms (#5), WLED/OSC/PTZ (#7), desk↔iPad comms (#8), public site (#10), button pages (#11), Robot 360 overlays + clip recorder (#1/#12), late warnings & agenda announcements (#22), robot-name opt-in & spotlight (#24), visual button builder (#25), comms secure links/PIN/timers/presence/agenda tools (#27), site extras — leaderboards, recordings, logos, bus tracker (#28), Playwright e2e suite (#30).
-- **2026-10-30:** `tm_update_plan.md` consolidated into this file (`source-of-truth.md`) and verified against the code.
+- **2026-10-30:** `tm_update_plan.md` consolidated into this file (`source-of-truth.md`) and verified against the code. Same day: added planned work (§22.1) from the QE Comp 26 planning deck — overlay rework (#13), replay chain (#45/#42/#38/#41), Art-Net (#39), checklist (#43), pit alerts (#44) — and recorded that the scraper uses the VEX Events API (events.vex.com).
