@@ -443,6 +443,22 @@ export interface BroadcastRequest {
   modal: boolean;
 }
 
+export type TeamAlertReason = 'pit_admin' | 'lost_and_found' | 'custom';
+
+export interface TeamAlertRequest {
+  teams: string[];
+  reason: TeamAlertReason;
+  message?: string | null;
+  push?: boolean;
+}
+
+export interface TeamAlertResult {
+  rooms: number;
+  pushed: number;
+  /** Teams no room display or phone subscription could reach. */
+  unreached_teams: string[];
+}
+
 export interface BroadcastResult {
   rooms: number;
   pushed: number;

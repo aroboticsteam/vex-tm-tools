@@ -8,12 +8,14 @@ import { PageHeader, Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input, Label, Textarea } from '../components/ui/Input';
 import { VideoUploader } from '../components/teams/VideoUploader';
+import { TeamAlertCard } from '../components/teams/TeamAlertCard';
 
 export function TeamDetailPage() {
   const { number } = useParams<{ number: string }>();
   const { data: team } = useTeam(number ?? null);
   const updateTeam = useUpdateTeam();
   const canEdit = usePermission('teams:edit');
+  const canAlert = usePermission('notifications:broadcast');
 
   const [pitLocation, setPitLocation] = useState('');
   const [extraNotes, setExtraNotes] = useState('');
@@ -141,6 +143,7 @@ export function TeamDetailPage() {
           <VideoUploader teamNumber={number} />
         </Card>
       </div>
+      {canAlert && <TeamAlertCard key={number} initialTeams={number} />}
     </div>
   );
 }
