@@ -35,39 +35,55 @@
   #grid { position: absolute; inset: 0; opacity: 0; transition: opacity 500ms ease; pointer-events: none; }
   #grid.visible { opacity: 1; }
 
-  /* Clip areas: the clip keeps its own (square-ish) ratio, never cropped. */
+  /* Text is dark gold everywhere (issue #13). Every box is positioned in
+     absolute 1920x1080 pixels, matching the agreed mockup. */
+  :root { --gold: #b8860b; --red: #e5243b; --blue: #1fa3ec; }
+
+  /* Clip areas: the clip keeps its own square ratio, never cropped. */
   .clip { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; }
-  .clip video { max-width: 100%; max-height: 100%; width: auto; height: 100%; aspect-ratio: 1 / 1; object-fit: contain; background: transparent; }
-  .clip .placeholder { font-size: 64px; font-weight: 700; letter-spacing: 0.06em; color: rgba(255,255,255,0.35); text-shadow: 0 2px 8px rgba(0,0,0,.6); }
+  .clip video { width: 100%; height: 100%; object-fit: contain; background: transparent; }
+  .clip .placeholder { font-size: 56px; font-weight: 700; letter-spacing: 0.06em; color: var(--gold); text-shadow: 0 2px 8px rgba(0,0,0,.6); }
 
-  /* Info boxes */
-  .info { box-sizing: border-box; border-radius: 18px; padding: 18px 24px; display: flex; gap: 18px; align-items: center; background: rgba(32, 76, 190, 0.92); }
-  .info.red { background: rgba(200, 40, 52, 0.92); }
-  .info.blue { background: rgba(32, 76, 190, 0.92); }
-  .rank { flex: none; min-width: 52px; padding: 6px 10px; text-align: center; font-size: 30px; font-weight: 800; border-radius: 10px; background: rgba(0,0,0,0.35); }
-  .rank:empty { display: none; }
-  .info .text { min-width: 0; }
-  .info .number { font-size: 44px; font-weight: 800; line-height: 1.05; letter-spacing: 0.03em; }
-  .info .name { font-size: 28px; font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .info .robot { font-size: 22px; font-style: italic; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .info .meta { font-size: 22px; line-height: 1.25; color: rgba(255,255,255,0.88); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .info.compact .number { font-size: 38px; } .info.compact .name { font-size: 24px; }
+  /* Match banner (top centre) */
+  .banner { position: absolute; top: 0; left: 50%; transform: translateX(-50%); background: #fff; color: var(--gold);
+    font-weight: 600; font-size: 54px; padding: 6px 110px; white-space: nowrap;
+    clip-path: polygon(0 0, 100% 0, 94% 100%, 6% 100%); }
 
-  /* IQ: bots in the top two quarters, info boxes in the bottom two. */
-  #grid.mode-iq { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 3fr 2fr; gap: 24px 48px; padding: 36px 48px; }
-  #grid.mode-iq .info { align-self: start; }
+  /* Country flag badge */
+  .flag { position: absolute; z-index: 3; top: 0; min-width: 84px; height: 50px; padding: 0 8px; box-sizing: border-box; background: #fff;
+    color: #a32d2d; font-size: 26px; font-weight: 700; display: flex; align-items: center; justify-content: center; border-radius: 4px; overflow: hidden; }
+  .flag img { height: 100%; width: auto; display: block; }
 
-  /* VRC: one bot per quarter with its info box beside it (red/blue alliance boxes). */
-  #grid.mode-vrc { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 24px 48px; padding: 36px 48px; }
-  .quarter { display: flex; align-items: center; gap: 20px; min-width: 0; min-height: 0; }
-  .quarter .clip { flex: none; height: 100%; aspect-ratio: 1 / 1; }
-  .quarter .info { flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 8px; }
+  /* Team cell: angled panel + square robot 360 + label */
+  .cell { position: absolute; width: 595px; height: 378px; }
+  .cell.iq { width: 653px; height: 410px; }
+  .cell .panel { position: absolute; left: 0; right: 0; bottom: 0; height: 60%; }
+  .cell .panel.red { background: var(--red); clip-path: polygon(0 0, 90% 0, 100% 100%, 0 100%); }
+  .cell .panel.blue { background: var(--blue); clip-path: polygon(10% 0, 100% 0, 100% 100%, 0 100%); }
+  .cell.iq .panel.blue.left { clip-path: polygon(0 0, 90% 0, 100% 100%, 0 100%); }
+  .cell .bot { position: absolute; z-index: 2; top: 0; left: 4%; height: 84%; aspect-ratio: 1 / 1; }
+  .cell .label { position: absolute; z-index: 1; bottom: 6%; right: 6%; width: 38%; text-align: right; color: var(--gold); line-height: 1.12; }
+  .cell .label .number { font-size: 60px; font-weight: 700; letter-spacing: 0.02em; }
+  .cell .label .name { font-size: 28px; font-weight: 500; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .cell .label .robot { font-size: 22px; font-style: italic; }
+  .cell.right .bot { left: auto; right: 4%; }
+  .cell.right .label { right: auto; left: 6%; text-align: left; }
+  .cell .flag { left: 0; }
+  .cell.right .flag { left: auto; right: 0; }
 
-  /* Finals spotlight: robot 360 + info on the left half, team clip on the right half. */
-  #grid.mode-finals { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; padding: 36px 48px; }
-  #grid.mode-finals .left { display: flex; flex-direction: column; gap: 24px; min-height: 0; }
-  #grid.mode-finals .left .clip { flex: 1; }
-  #grid.mode-finals .right .clip { height: 100%; }
+  #grid.mode-vrc .banner, #grid.mode-iq .banner { z-index: 4; }
+  .vs { position: absolute; left: 50%; top: 80%; transform: translate(-50%, -50%); font-size: 170px; font-weight: 700; color: #fff;
+    -webkit-text-stroke: 5px #111; paint-order: stroke fill; letter-spacing: -4px; }
+
+  /* Single-team spotlight: robot 360 above a red label bar, keyed team clip on the right. */
+  #grid.mode-finals .bot { position: absolute; left: 4%; bottom: 24.5%; height: 42%; aspect-ratio: 1 / 1; z-index: 2; }
+  #grid.mode-finals .bar { position: absolute; left: 0; bottom: 8%; width: 38%; box-sizing: border-box; background: var(--red); color: var(--gold);
+    padding: 14px 8% 14px 6%; clip-path: polygon(0 0, 100% 0, 96% 100%, 0 100%); }
+  #grid.mode-finals .bar .number { font-size: 64px; font-weight: 700; line-height: 1.05; }
+  #grid.mode-finals .bar .name { font-size: 30px; font-weight: 500; }
+  #grid.mode-finals .bar .robot { font-size: 22px; font-style: italic; }
+  #grid.mode-finals .bar .flag { top: 50%; transform: translateY(-50%); right: 9%; }
+  #grid.mode-finals .teamvid { position: absolute; right: 15%; bottom: 8%; height: 63%; aspect-ratio: 1 / 1; }
 </style>
 </head>
 <body>
@@ -95,14 +111,45 @@
   var lastMatch = null;     // last upcoming_match payload (so spotlight can return to it)
   var spotlightTeam = null; // team number being featured (finals mode), or null
 
-  // ── Flags (UK / Turkey, per issue #12; others show no flag) ───────────
-  var UK_NAMES = ["united kingdom", "uk", "u.k.", "great britain", "gb", "england", "scotland", "wales", "northern ireland"];
-  var TR_NAMES = ["turkey", "türkiye", "turkiye"];
-  function flagFor(country) {
+  // ── Flags: country name -> ISO 3166 alpha-2 code ─────────────────────
+  // Shown as an image from flagcdn.com when reachable, else as the white
+  // code badge from the mockup (so an offline stream still reads correctly).
+  var ISO = {
+    "united kingdom": "gb", "uk": "gb", "u.k.": "gb", "great britain": "gb", "gb": "gb", "england": "gb", "scotland": "gb", "wales": "gb", "northern ireland": "gb",
+    "turkey": "tr", "türkiye": "tr", "turkiye": "tr", "united states": "us", "usa": "us", "united states of america": "us", "canada": "ca", "mexico": "mx",
+    "china": "cn", "hong kong": "hk", "taiwan": "tw", "japan": "jp", "south korea": "kr", "korea": "kr", "india": "in", "australia": "au", "new zealand": "nz",
+    "singapore": "sg", "malaysia": "my", "thailand": "th", "philippines": "ph", "indonesia": "id", "vietnam": "vn", "saudi arabia": "sa",
+    "united arab emirates": "ae", "uae": "ae", "qatar": "qa", "egypt": "eg", "south africa": "za", "brazil": "br", "chile": "cl", "colombia": "co",
+    "argentina": "ar", "ireland": "ie", "france": "fr", "germany": "de", "spain": "es", "italy": "it", "portugal": "pt", "netherlands": "nl",
+    "belgium": "be", "switzerland": "ch", "austria": "at", "poland": "pl", "czech republic": "cz", "czechia": "cz", "sweden": "se", "norway": "no",
+    "denmark": "dk", "finland": "fi", "greece": "gr", "romania": "ro", "bulgaria": "bg", "hungary": "hu", "ukraine": "ua", "israel": "il", "jordan": "jo",
+    "kuwait": "kw", "bahrain": "bh", "oman": "om", "pakistan": "pk", "sri lanka": "lk", "bangladesh": "bd", "nepal": "np", "kazakhstan": "kz"
+  };
+  function isoFor(country) {
     var c = String(country || "").trim().toLowerCase();
-    if (UK_NAMES.indexOf(c) !== -1) return "🇬🇧";
-    if (TR_NAMES.indexOf(c) !== -1) return "🇹🇷";
-    return "";
+    if (/^[a-z]{2}$/.test(c) && c !== "uk") return c;
+    return ISO[c] || "";
+  }
+  function flagFor(country) { return isoFor(country).toUpperCase(); }
+
+  function buildFlag(country) {
+    var code = isoFor(country);
+    if (!code) return null;
+    var box = el("div", "flag");
+    var img = document.createElement("img");
+    img.alt = code.toUpperCase();
+    img.src = "https://flagcdn.com/h40/" + code + ".png";
+    img.onerror = function () { box.removeChild(img); box.textContent = code.toUpperCase(); };
+    box.appendChild(img);
+    return box;
+  }
+
+  var ROUNDS = { QUAL: "Q", PRACTICE: "P", PRAC: "P", R16: "R16", QF: "QF", SF: "SF", F: "F", FINAL: "F", FINALS: "F", SKILLS: "S" };
+  function bannerText(payload) {
+    var round = String((payload && payload.round) || "").toUpperCase();
+    var num = payload && payload.matchNum;
+    var prefix = ROUNDS[round] || round.slice(0, 3);
+    return [prefix, num != null ? num : ""].filter(function (x) { return x !== ""; }).join(" ");
   }
 
   function teamNumberOf(t) {
@@ -147,23 +194,6 @@
     return box;
   }
 
-  function buildInfo(team, color, opts) {
-    opts = opts || {};
-    var box = el("div", "info " + (color || "blue") + (opts.compact ? " compact" : ""));
-    box.appendChild(el("div", "rank", team.rank != null ? String(team.rank) : ""));
-    var text = el("div", "text");
-    text.appendChild(el("div", "number", team.team_number));
-    if (team.team_name) text.appendChild(el("div", "name", team.team_name));
-    if (showRobotName && team.robot_name) text.appendChild(el("div", "robot", "🤖 " + team.robot_name));
-    if (!opts.minimal) {
-      if (team.organisation) text.appendChild(el("div", "meta", team.organisation));
-      var loc = [flagFor(team.country), team.location].filter(Boolean).join(" ");
-      if (loc) text.appendChild(el("div", "meta", loc));
-    }
-    box.appendChild(text);
-    return box;
-  }
-
   var showRobotName = false; // set from the feed (server opt-in) or ?robot_name=1
 
   function fetchFeed(teamNumbers) {
@@ -196,36 +226,66 @@
     gridEl.classList.add("visible");
   }
 
-  // IQ: [bot A][bot B] on top, [info A][info B] below (both blue).
-  function layoutIq(teams) {
-    show("mode-iq", function (g) {
-      teams.forEach(function (t) { g.appendChild(buildClip(t.bot_url, t.team_number)); });
-      teams.forEach(function (t) { g.appendChild(buildInfo(t, "blue")); });
-    });
+  function buildCell(t, side, panelClass, extraClass, pos) {
+    var cell = el("div", "cell " + side + (extraClass ? " " + extraClass : ""));
+    cell.style.top = pos.top + "px";
+    cell.style[side === "right" ? "right" : "left"] = "38px";
+    cell.appendChild(el("div", "panel " + panelClass + (side === "left" && extraClass === "iq" ? " left" : "")));
+    var label = el("div", "label");
+    label.appendChild(el("div", "number", t.team_number));
+    if (t.team_name) label.appendChild(el("div", "name", t.team_name));
+    if (showRobotName && t.robot_name) label.appendChild(el("div", "robot", "\uD83E\uDD16 " + t.robot_name));
+    cell.appendChild(label);
+    var bot = buildClip(t.bot_url, t.team_number);
+    bot.classList.add("bot");
+    cell.appendChild(bot);
+    var flag = buildFlag(t.country);
+    if (flag) cell.appendChild(flag);
+    return cell;
   }
 
-  // VRC: red alliance on the top row, blue on the bottom; a bot + info box per quarter.
-  function layoutVrc(red, blue) {
-    show("mode-vrc", function (g) {
-      red.concat(blue).forEach(function (t, i) {
-        var q = el("div", "quarter");
-        q.appendChild(buildClip(t.bot_url, t.team_number));
-        q.appendChild(buildInfo(t, i < red.length ? "red" : "blue", { compact: true, minimal: true }));
-        g.appendChild(q);
+  function addBanner(g, payload) {
+    var text = bannerText(payload);
+    if (text) g.appendChild(el("div", "banner", text));
+  }
+
+  // IQ: two teams, one each side, same light blue panels, no VS.
+  function layoutIq(teams, payload) {
+    show("mode-iq", function (g) {
+      addBanner(g, payload);
+      teams.slice(0, 2).forEach(function (t, i) {
+        g.appendChild(buildCell(t, i === 0 ? "left" : "right", "blue", "iq", { top: 508 }));
       });
     });
   }
 
-  // Finals spotlight: robot 360 + info (left half), team clip (right half).
+  // VRC: red alliance on the left, blue on the right, 2x2 with a large VS low in the frame.
+  function layoutVrc(red, blue, payload) {
+    show("mode-vrc", function (g) {
+      addBanner(g, payload);
+      var tops = [216, 648];
+      red.slice(0, 2).forEach(function (t, i) { g.appendChild(buildCell(t, "left", "red", "", { top: tops[i] })); });
+      blue.slice(0, 2).forEach(function (t, i) { g.appendChild(buildCell(t, "right", "blue", "", { top: tops[i] })); });
+      g.appendChild(el("div", "vs", "VS"));
+    });
+  }
+
+  // Single-team spotlight: square robot 360 above a red label bar, keyed team clip on the right.
   function layoutFinals(t) {
     show("mode-finals", function (g) {
-      var left = el("div", "left");
-      left.appendChild(buildClip(t.bot_url, t.team_number));
-      left.appendChild(buildInfo(t, "blue"));
-      var right = el("div", "right");
-      right.appendChild(buildClip(t.team_url, null));
-      g.appendChild(left);
-      g.appendChild(right);
+      var bot = buildClip(t.bot_url, t.team_number);
+      bot.classList.add("bot");
+      g.appendChild(bot);
+      var bar = el("div", "bar");
+      bar.appendChild(el("div", "number", t.team_number));
+      if (t.team_name) bar.appendChild(el("div", "name", t.team_name));
+      if (showRobotName && t.robot_name) bar.appendChild(el("div", "robot", "\uD83E\uDD16 " + t.robot_name));
+      var flag = buildFlag(t.country);
+      if (flag) bar.appendChild(flag);
+      g.appendChild(bar);
+      var vid = buildClip(t.team_url, null);
+      vid.classList.add("teamvid");
+      g.appendChild(vid);
     });
   }
 
@@ -251,8 +311,8 @@
       var blue = blueRaw.map(function (t) { return normalizeTeam(t, feed); });
       var forced = query.get("mode");
       var count = red.length + blue.length;
-      if (forced === "iq" || (forced !== "vrc" && count === 2)) layoutIq(red.concat(blue));
-      else layoutVrc(red, blue);
+      if (forced === "iq" || (forced !== "vrc" && count === 2)) layoutIq(red.concat(blue), payload);
+      else layoutVrc(red, blue, payload);
     });
   }
 
@@ -337,7 +397,8 @@
     renderMatch: renderMatch,
     setSpotlight: setSpotlight,
     normalizeTeam: normalizeTeam,
-    flagFor: flagFor
+    flagFor: flagFor,
+    bannerText: bannerText
   };
 })();
 </script>
