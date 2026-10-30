@@ -1,8 +1,8 @@
 # QEComp backend
 
 FastAPI application implementing the design in
-[`../tm_update_plan.md`](../tm_update_plan.md). Single ASGI app, run with
-exactly one Uvicorn worker per pod (Appendix B.1) — leader election
+[`../source-of-truth.md`](../source-of-truth.md). Single ASGI app, run with
+exactly one Uvicorn worker per pod (source-of-truth §2) — leader election
 (`modules/leader.py`) assumes one process per pod, not one lock per worker.
 
 ## Layout

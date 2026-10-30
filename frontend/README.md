@@ -1,7 +1,7 @@
 # QEComp frontend
 
 React 18 + Vite 5 + TypeScript (strict) admin SPA for QEComp, per
-[`tm_update_plan.md`](../tm_update_plan.md) §12/Appendix B.2/C.3/C.8/D.
+[`source-of-truth.md`](../source-of-truth.md) §15/§17/§21.
 Talks to the FastAPI backend in [`../backend/`](../backend/).
 
 ## Stack

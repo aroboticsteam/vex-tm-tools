@@ -13,7 +13,7 @@ automation engine. Full rewrite of the original single-instance Flask/
 JSON-file tool into a clustered FastAPI + Postgres + Redis backend with a
 React admin SPA.
 
-See [`tm_update_plan.md`](tm_update_plan.md) for the complete design
+See [`source-of-truth.md`](source-of-truth.md) for the complete, current design
 (architecture decisions, schema, API surface, RBAC model, deployment plan)
 and [`docs/API.md`](docs/API.md) for the generated REST API reference.
 
