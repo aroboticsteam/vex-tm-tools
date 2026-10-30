@@ -28,7 +28,7 @@ from sqlalchemy import delete, select, update
 
 from backend.core.settings import settings
 from backend.models.notification import KIND_STAFF, KIND_TEAM, PushSubscription, PushSubscriptionTeam
-from backend.models.room import Room
+from backend.models.room import Room, RoomTeam
 from backend.schemas.events import EventBusMessage
 
 logger = logging.getLogger(__name__)
@@ -289,3 +289,68 @@ async def broadcast(
         )
         pushed += await push_to_staff(session_factory, title, message, CATEGORY_BROADCAST)
     return {"rooms": len(target_rooms), "pushed": pushed}
+
+
+# ── Per-team alerts (issue #44) ──────────────────────────────────────
+
+CATEGORY_TEAM_ALERT = "team_alert"
+
+
+def _team_list(teams: list[str]) -> str:
+    return "Team " + teams[0] if len(teams) == 1 else "Teams " + ", ".join(teams)
+
+
+def team_alert_text(reason: str, teams: list[str], note: str | None) -> tuple[str, str]:
+    """Title and body of a per-team alert, naming only `teams`."""
+    who = _team_list(teams)
+    if reason == "pit_admin":
+        title, body = "Pit Admin", f"{who}: please come to Pit Admin."
+    elif reason == "lost_and_found":
+        title, body = "Lost & Found", f"{who}: please come to Lost & Found."
+    else:
+        title, body = f"Message for {who}", note or ""
+        note = None
+    if note:
+        body = f"{body} {note}"
+    return title, body
+
+
+async def alert_teams(
+    redis: Any,
+    session_factory: Any,
+    teams: list[str],
+    reason: str,
+    note: str | None = None,
+    *,
+    push: bool = True,
+    duration: int = 60,
+) -> dict[str, Any]:
+    """Alerts specific teams: a popup on the room displays that contain them
+    (each naming only that room's teams) and a push to every phone following
+    them (naming only the teams that phone follows). Like staff broadcasts it
+    ignores the per-category opt-outs, since a team being asked to come
+    somewhere is urgent. Returns delivery counts and the teams nothing could
+    reach."""
+    async with session_factory() as session:
+        rows = (
+            await session.execute(select(RoomTeam.room_slug, RoomTeam.team_number).where(RoomTeam.team_number.in_(teams)))
+        ).all()
+    by_room: dict[str, list[str]] = {}
+    for room_slug, team in rows:
+        by_room.setdefault(room_slug, []).append(team)
+    reached: set[str] = set()
+    for room_slug, room_teams in sorted(by_room.items()):
+        title, body = team_alert_text(reason, sorted(room_teams), note)
+        await publish_room_notice(redis, [room_slug], title, body, modal=True, duration=duration, source="team_alert")
+        reached.update(room_teams)
+
+    pushed = 0
+    if push and push_configured():
+        alert_id = uuid.uuid4().hex
+        targets = []
+        for sub, own_teams in await team_subscriptions(session_factory, teams):
+            title, body = team_alert_text(reason, own_teams, note)
+            targets.append(_target(sub, team_payload(sub, title, body, tag=f"team-alert-{alert_id}", kind="team_alert")))
+            reached.update(own_teams)
+        pushed = await send_push(session_factory, targets)
+    return {"rooms": len(by_room), "pushed": pushed, "unreached_teams": sorted(set(teams) - reached)}

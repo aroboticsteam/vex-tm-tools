@@ -488,6 +488,7 @@ Generated reference: [`docs/API.md`](docs/API.md) and the live `/docs` (Swagger)
 | POST | `/api/v1/public/push/subscribe`, `/status`, `/unsubscribe` | **public** |
 | POST | `/api/v1/notifications/staff/subscribe`, `/unsubscribe` | `notifications:receive` |
 | POST | `/api/v1/notifications/broadcast` | `notifications:broadcast` |
+| POST | `/api/v1/notifications/team-alert` | `notifications:broadcast` — alert specific teams (`pit_admin`/`lost_and_found`/`custom`); modal notice in each room containing them + push to subscribers following them (ignores category opt-outs); returns `{rooms, pushed, unreached_teams}`; audited as `team_alert` |
 | POST | `/api/v1/notifications/test`; GET `/api/v1/notifications/stats` | `notifications:manage` |
 
 **Comms** (`comms:read` = list/inbox view; `comms:manage` = stations, presets, agenda CRUD, links/PIN; `comms:send` = send/screen/timer/ack/clear inbox)
@@ -715,7 +716,6 @@ Not implemented yet. Decisions recorded here are agreed; implementation details 
 | #42 | Match recording + per-team tagging | Recordings come from the #45 agent (not OBS); tagged with the match key and the teams; shown per team on the public site / team profiles. Replaces manual URL import as the source of `match_recordings` |
 | #38 | Instant replay | Finals only; marks key moments from the analysis deck (last 3s / 5s / 10s buttons, keyboard-mappable; exact timestamp stamped on the agent's recording clock) and cuts clips from the match recording, uploaded to `{matchType}/{matchNumber}/segments/moment-N`; LED-flash button; moments saved to team profiles; blank slate each match. Depends on #45 and #42 |
 | #41 | Analysis/host desk | Finals only; stats screen (2 teams IQ / 4 teams VRC per page, arrows or match-number entry) plus a match screen (live program feed and mark buttons during the match; after the match, moment list and full video, send to program = the server tells a replay player page (an OBS browser source served by the web server, streaming from the object store via presigned GET URLs) to play it, and the deck switches OBS to that scene via `obs.switch_scene`; a video must be uploaded before it can be played; pause, speed 0.5× default / 0.25 / 0.75 / 1×). Never shows predicted scores. Depends on #38, #45, #42 |
-| #44 | Pit admin / lost & found alerts | Targeted per-team push; reuse the notifications system |
 | #29 | Validate VEX Events API against the live service | Open; also refresh `backend/tests/mock_tm_server.py` |
 | #23, #21, #26 | Real-device verification | Recorder 60fps, push on iOS/Chrome/Edge, iPads + Mumble |
 
@@ -727,6 +727,7 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 - **Rewrite delivered** in waves (core → loader/integrations → engine/timers → routers/WS → frontend → scraper/predictor/media), then QA-pass fixes (leader failover, save-time validation, automation reporting, RobotEvents API migration, hot-reload, S3 settings, security audit fixes).
 - **TMTools rebrand** of user-visible text; AGPL-3.0 licence; separate `:backend`/`:frontend` images; Match Control absorbs Field Monitor.
 - **Feature additions (issue/PR):** notifications & rooms (#5), WLED/OSC/PTZ (#7), desk↔iPad comms (#8), public site (#10), button pages (#11), Robot 360 overlays + clip recorder (#1/#12), late warnings & agenda announcements (#22), robot-name opt-in & spotlight (#24), visual button builder (#25), comms secure links/PIN/timers/presence/agenda tools (#27), site extras — leaderboards, recordings, logos, bus tracker (#28), Playwright e2e suite (#30).
+- **2026-10-30:** Pit admin / lost & found per-team alerts (#44): `POST /notifications/team-alert`, `delivery.alert_teams`, "Alert teams" card on Rooms and Team detail pages.
 - **2026-10-30:** `tm_update_plan.md` consolidated into this file (`source-of-truth.md`) and verified against the code. Same day: added planned work (§22.1) from the QE Comp 26 planning deck — overlay rework (#13), replay chain (#45/#42/#38/#41), Art-Net (#39), checklist (#43), pit alerts (#44) — and recorded that the scraper uses the VEX Events API (events.vex.com).
 - **2026-10-30:** planned-work notes updated: capture agent `reencode`/`video_bitrate` settings, clip-priority rules, IQ storage sizing, recordings cleared between events, and the server described as a portable Docker stack (#45, #46).
 - **2026-10-30:** Art-Net integration (`artnet`, #39) implemented.
