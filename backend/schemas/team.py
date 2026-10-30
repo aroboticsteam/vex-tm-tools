@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -21,6 +21,7 @@ class TeamProfileRead(BaseModel):
     extra_notes: str | None = None
     website_url: str | None = None
     logo_s3_key: str | None = None
+    inspection_status: str = "NOT_STARTED"
     updated_at: datetime
 
 
@@ -34,6 +35,8 @@ class TeamProfileUpdate(BaseModel):
     extra_notes: str | None = None
     #: http(s) link shown on the public team page; an empty string clears it.
     website_url: str | None = Field(default=None, max_length=500)
+    #: Checklist inspection state (issue #43): NOT_STARTED, IN_PROGRESS or PASSED.
+    inspection_status: Literal["NOT_STARTED", "IN_PROGRESS", "PASSED"] | None = None
 
     @field_validator("website_url")
     @classmethod
@@ -103,3 +106,15 @@ class OverlayTeamsResponse(BaseModel):
     #: Opt-in (system setting `overlay.show_robot_name`): robot names need
     #: VEX Events approval before they are put on stream.
     show_robot_name: bool = False
+
+
+class TeamChecklistItem(BaseModel):
+    """One team's checklist (issue #43): inspection plus the two videos."""
+
+    team_number: str
+    inspection: str
+    bot_video: bool
+    team_video: bool
+    done: int
+    total: int
+    complete: bool

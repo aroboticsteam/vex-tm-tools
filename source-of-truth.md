@@ -1,6 +1,6 @@
 # TMTools (QEComp) — Source of Truth
 
-**Last verified against the codebase:** 2026-10-30 (`main` @ `c832fb6`, Alembic head `a8b9c1d2e3f4`)
+**Last verified against the codebase:** 2026-10-30 (`main` @ `c832fb6`, Alembic head `b9c1d2e3f4a5`)
 
 This is the single authoritative description of what is in this repository: architecture, decisions, data model, API surface, RBAC, frontend, deployment and tests. It replaces `tm_update_plan.md` (the original v3.0 rewrite plan). Where the old plan and the code disagreed, **the code wins** and this document records the code.
 
@@ -197,7 +197,7 @@ All tables are defined in `backend/models/` and created by Alembic (`alembic/ver
 | | `automations` | `folder_id`, `alias`, `enabled`, `trigger_yaml`, `condition_yaml`, `action_yaml`, `last_triggered_at` |
 | | `scripts` | `name` UNIQUE, `description`, `action_yaml` |
 | | `automation_runs` | `automation_id`, `triggered_at`, `trigger_event` JSONB, `status`, `failed_action_index`, `error`, `action_results` JSONB |
-| Teams | `team_profiles` | `team_number` PK, `pit_location`, `bio`, `robot_name`, `raw_video_s3_key`, `video_360_s3_key`, `video_processing_status` (`NONE/PROCESSING/DONE/FAILED`), `video_processing_error`, `cached_stats` JSONB, `extra_notes`, `website_url`, `logo_s3_key` |
+| Teams | `team_profiles` | `team_number` PK, `pit_location`, `bio`, `robot_name`, `raw_video_s3_key`, `video_360_s3_key`, `video_processing_status` (`NONE/PROCESSING/DONE/FAILED`), `video_processing_error`, `cached_stats` JSONB, `extra_notes`, `website_url`, `logo_s3_key`, `inspection_status` (`NOT_STARTED/IN_PROGRESS/PASSED`, checklist #43) |
 | | `team_clips` | PK (`team_number`,`kind`), `raw_s3_key`, `processed_s3_key`, `status`, `error` |
 | Rooms/notifications | `rooms` | `slug` PK, `name`, `stream_url` |
 | | `room_teams` | (`room_slug`,`team_number`) |
@@ -216,7 +216,7 @@ All tables are defined in `backend/models/` and created by Alembic (`alembic/ver
 | System | `system_settings` | `key` PK, `value` JSONB, `updated_by` |
 | | `audit_log` | `user_id`, `action`, `resource_type`, `resource_id`, `changes` JSONB, `ip_address` INET; retained forever, no UI deletion |
 
-Migrations: single linear head `a8b9c1d2e3f4` (CI fails on multiple heads). Seed migrations: default role permissions, notifications settings, prompter index token, plus permission additions per feature (rooms, buttons, comms). The k8s `migrate` init container and compose `migrate` service run `alembic upgrade head`.
+Migrations: single linear head `b9c1d2e3f4a5` (CI fails on multiple heads). Seed migrations: default role permissions, notifications settings, prompter index token, plus permission additions per feature (rooms, buttons, comms). The k8s `migrate` init container and compose `migrate` service run `alembic upgrade head`.
 
 ## 7. Redis keyspace and event bus
 
@@ -386,7 +386,7 @@ Stream-Deck-style pages of buttons (Button Pages admin page, `buttons:*`). Each 
 
 ### 10.8 Public site (`/site`)
 
-Unauthenticated, display-safe team-facing website: overview, event/schedule, teams and team pages, rotating leaderboards and season highlights (`modules/site/leaderboards.py`: UK/world skills, programme labels VIQRC/V5RC), match recordings, livestreams, dashboard highlights. Configured via the `site` setting and the match-recordings admin (`MatchRecordingsCard`). Data comes from the schedule cache and `team_profiles.cached_stats`.
+Unauthenticated, display-safe team-facing website: overview, event/schedule, teams and team pages, rotating leaderboards and season highlights (`modules/site/leaderboards.py`: UK/world skills, programme labels VIQRC/V5RC), match recordings, livestreams, dashboard highlights. Configured via the `site` setting and the match-recordings admin (`MatchRecordingsCard`). Data comes from the schedule cache and `team_profiles.cached_stats`. Team pages include a `checklist` block (inspection, 360 robot video, team video; `modules/site/checklist.py`, shared with the admin API; a video counts when its processed clip is `DONE`, the bot video also counts a finished legacy 360 upload).
 
 ### 10.9 Stream Deck / API keys
 
@@ -459,8 +459,8 @@ Generated reference: [`docs/API.md`](docs/API.md) and the live `/docs` (Swagger)
 
 | Method | Path | Permission |
 |---|---|---|
-| GET | `/api/v1/teams`, `/api/v1/teams/{number}`, `/api/v1/teams/batch/videos`, `/api/v1/teams/{number}/video/status`, `/api/v1/teams/{number}/clips` | `teams:read` |
-| PUT | `/api/v1/teams/{number}` | `teams:edit` |
+| GET | `/api/v1/teams`, `/api/v1/teams/checklist` (per-team inspection / 360 bot video / team video, #43), `/api/v1/teams/{number}`, `/api/v1/teams/batch/videos`, `/api/v1/teams/{number}/video/status`, `/api/v1/teams/{number}/clips` | `teams:read` |
+| PUT | `/api/v1/teams/{number}` (pit location, notes, website, `inspection_status`) | `teams:edit` |
 | POST/DELETE | `/api/v1/teams/{number}/logo` | `teams:edit` |
 | POST | `/api/v1/teams/{number}/video`, `/api/v1/teams/{number}/clips/{kind}` | `video:upload` |
 | POST | `/api/v1/site/images` | `settings:edit` |
@@ -595,7 +595,7 @@ Authentik setup: [`docs/AUTHENTIK_SETUP.md`](docs/AUTHENTIK_SETUP.md) (OAuth2/OI
 | `/scripts` | Scripts | same editors |
 | `/timers` | Timers | instance CRUD, duration, copyable prompter link, regenerate token, cues/runsheet |
 | `/overlays` | Overlays | CRUD, copyable URL, next-match preview, spotlight |
-| `/teams`, `/teams/:number` | Teams, TeamDetail | search/filter; stats, notes, pit location, logo, video upload + WebGL keying preview + re-process, clips, bio |
+| `/teams`, `/teams/:number` | Teams, TeamDetail | search/filter; stats, notes, pit location, inspection checklist (status select, 360/team-video marks; list page shows progress + incomplete-only filter), logo, video upload + WebGL keying preview + re-process, clips, bio |
 | `/record` | Recorder | in-browser clip recorder |
 | `/rooms` | Rooms | rooms, team allocation, QR/links, broadcast |
 | `/comms` | Comms | stations, presets, send, screens, timers, agenda, inbox |
@@ -716,7 +716,6 @@ Not implemented yet. Decisions recorded here are agreed; implementation details 
 | #42 | Match recording + per-team tagging | Recordings come from the #45 agent (not OBS); tagged with the match key and the teams; shown per team on the public site / team profiles. Replaces manual URL import as the source of `match_recordings` |
 | #38 | Instant replay | Finals only; marks key moments from the analysis deck (last 3s / 5s / 10s buttons, keyboard-mappable; exact timestamp stamped on the agent's recording clock) and cuts clips from the match recording, uploaded to `{matchType}/{matchNumber}/segments/moment-N`; LED-flash button; moments saved to team profiles; blank slate each match. Depends on #45 and #42 |
 | #41 | Analysis/host desk | Finals only; stats screen (2 teams IQ / 4 teams VRC per page, arrows or match-number entry) plus a match screen (live program feed and mark buttons during the match; after the match, moment list and full video, send to program = the server tells a replay player page (an OBS browser source served by the web server, streaming from the object store via presigned GET URLs) to play it, and the deck switches OBS to that scene via `obs.switch_scene`; a video must be uploaded before it can be played; pause, speed 0.5× default / 0.25 / 0.75 / 1×). Never shows predicted scores. Depends on #38, #45, #42 |
-| #43 | Team checklist | Inspection, 360 bot video, team video; inspection status source undecided |
 | #29 | Validate VEX Events API against the live service | Open; also refresh `backend/tests/mock_tm_server.py` |
 | #23, #21, #26 | Real-device verification | Recorder 60fps, push on iOS/Chrome/Edge, iPads + Mumble |
 
@@ -732,3 +731,4 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 - **2026-10-30:** `tm_update_plan.md` consolidated into this file (`source-of-truth.md`) and verified against the code. Same day: added planned work (§22.1) from the QE Comp 26 planning deck — overlay rework (#13), replay chain (#45/#42/#38/#41), Art-Net (#39), checklist (#43), pit alerts (#44) — and recorded that the scraper uses the VEX Events API (events.vex.com).
 - **2026-10-30:** planned-work notes updated: capture agent `reencode`/`video_bitrate` settings, clip-priority rules, IQ storage sizing, recordings cleared between events, and the server described as a portable Docker stack (#45, #46).
 - **2026-10-30:** Art-Net integration (`artnet`, #39) implemented.
+- **2026-10-30:** Team checklist (#43) implemented: `team_profiles.inspection_status`, `GET /api/v1/teams/checklist`, admin Teams/TeamDetail UI, public team page card.

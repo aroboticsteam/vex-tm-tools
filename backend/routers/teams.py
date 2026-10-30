@@ -37,11 +37,14 @@ from backend.core.audit import log_action
 from backend.core.dependencies import CurrentPrincipal, get_db, require_permission
 from backend.core.exceptions import ProcessingError
 from backend.models.team import TeamProfile
+from backend.models.team_clip import TeamClip
+from backend.modules.site.checklist import checklist_for
 from backend.modules.media import images as site_images
 from backend.modules.media import s3
 from backend.modules.media.processor import process_video
 from backend.schemas.team import (
     BatchVideoUrlsResponse,
+    TeamChecklistItem,
     TeamProfileRead,
     TeamProfileUpdate,
     VideoProcessingStatus,
@@ -78,6 +81,20 @@ _ALLOWED_VIDEO_EXTENSIONS = {"mp4", "mov"}
 async def list_teams(db: Annotated[AsyncSession, Depends(get_db)]) -> list[TeamProfile]:
     result = await db.execute(select(TeamProfile).order_by(TeamProfile.team_number))
     return list(result.scalars())
+
+
+@router.get(
+    "/checklist",
+    response_model=list[TeamChecklistItem],
+    dependencies=[Depends(require_permission("teams:read"))],
+)
+async def team_checklist(db: Annotated[AsyncSession, Depends(get_db)]) -> list[dict]:
+    """Every team's checklist (inspection, 360 bot video, team video), issue #43."""
+    profiles = list((await db.execute(select(TeamProfile).order_by(TeamProfile.team_number))).scalars())
+    clips: dict[str, dict[str, TeamClip]] = {}
+    for clip in (await db.execute(select(TeamClip))).scalars():
+        clips.setdefault(clip.team_number, {})[clip.kind] = clip
+    return [checklist_for(p, clips.get(p.team_number, {})) for p in profiles]
 
 
 @router.get(
@@ -148,6 +165,9 @@ async def update_team(
     if body.website_url is not None:
         team.website_url = body.website_url or None
         changed_fields["website_url"] = team.website_url
+    if body.inspection_status is not None:
+        team.inspection_status = body.inspection_status
+        changed_fields["inspection_status"] = body.inspection_status
 
     await db.commit()
     await db.refresh(team)

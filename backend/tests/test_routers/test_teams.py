@@ -288,3 +288,46 @@ async def test_raw_video_persisted_even_when_processing_fails(seeded_team, tmp_p
             assert team.raw_video_s3_key == raw_key
     finally:
         await s3.delete_object(raw_key)
+
+
+async def test_update_inspection_status_and_checklist(client, seeded_team):
+    resp = await client.put(f"/api/v1/teams/{seeded_team}", json={"inspection_status": "PASSED"})
+    assert resp.status_code == 200
+    assert resp.json()["inspection_status"] == "PASSED"
+    listing = await client.get("/api/v1/teams/checklist")
+    assert listing.status_code == 200
+    row = next(r for r in listing.json() if r["team_number"] == seeded_team)
+    assert row["inspection"] == "PASSED"
+    assert (row["done"], row["total"], row["complete"]) == (1, 3, False)
+    assert (row["bot_video"], row["team_video"]) == (False, False)
+
+
+async def test_inspection_status_rejects_unknown_value(client, seeded_team):
+    resp = await client.put(f"/api/v1/teams/{seeded_team}", json={"inspection_status": "MAYBE"})
+    assert resp.status_code == 422
+    assert (await client.get(f"/api/v1/teams/{seeded_team}")).json()["inspection_status"] == "NOT_STARTED"
+
+
+async def test_checklist_reflects_done_clips(client, seeded_team, db_engine):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from backend.models.team_clip import TeamClip
+
+    factory = async_sessionmaker(bind=db_engine, expire_on_commit=False)
+    async with factory() as session:
+        session.add(TeamClip(team_number=seeded_team, kind="bot", status="DONE"))
+        session.add(TeamClip(team_number=seeded_team, kind="team", status="PROCESSING"))
+        await session.commit()
+    try:
+        row = next(r for r in (await client.get("/api/v1/teams/checklist")).json() if r["team_number"] == seeded_team)
+        assert (row["bot_video"], row["team_video"], row["done"]) == (True, False, 1)
+    finally:
+        async with factory() as session:
+            await session.execute(delete(TeamClip).where(TeamClip.team_number == seeded_team))
+            await session.commit()
+
+
+async def test_checklist_route_is_not_shadowed_by_team_number(client):
+    # "/checklist" must hit the list route, not get_team(number="checklist")
+    resp = await client.get("/api/v1/teams/checklist")
+    assert resp.status_code == 200 and isinstance(resp.json(), list)

@@ -8,6 +8,7 @@ import { PageHeader, Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input, Label, Textarea } from '../components/ui/Input';
 import { VideoUploader } from '../components/teams/VideoUploader';
+import { ChecklistCard } from '../components/teams/ChecklistCard';
 import { TeamAlertCard } from '../components/teams/TeamAlertCard';
 
 export function TeamDetailPage() {
@@ -135,6 +136,8 @@ export function TeamDetailPage() {
             </dl>
           )}
         </Card>
+
+        <ChecklistCard teamNumber={number} />
 
         <Card>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-vmd-textMuted">
