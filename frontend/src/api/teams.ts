@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../lib/http';
 import type {
   BatchVideoUrlsResponse,
+  TeamChecklistItem,
   TeamProfile,
   TeamProfileUpdate,
   VideoProcessingStatus,
@@ -10,6 +11,13 @@ import type {
 
 export function useTeams() {
   return useQuery({ queryKey: ['teams'], queryFn: () => apiFetch<TeamProfile[]>('/api/v1/teams') });
+}
+
+export function useTeamChecklist() {
+  return useQuery({
+    queryKey: ['teams', 'checklist'],
+    queryFn: () => apiFetch<TeamChecklistItem[]>('/api/v1/teams/checklist'),
+  });
 }
 
 export function useTeam(number: string | null) {
@@ -28,6 +36,7 @@ export function useUpdateTeam() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['teams'] });
       qc.invalidateQueries({ queryKey: ['teams', vars.number] });
+      qc.invalidateQueries({ queryKey: ['teams', 'checklist'] });
     },
   });
 }

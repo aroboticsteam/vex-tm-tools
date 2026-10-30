@@ -322,7 +322,21 @@ export interface TeamProfile {
   extra_notes: string | null;
   website_url: string | null;
   logo_s3_key: string | null;
+  inspection_status: InspectionStatus;
   updated_at: string;
+}
+
+export type InspectionStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'PASSED';
+
+/** One row of `GET /api/v1/teams/checklist` (issue #43). */
+export interface TeamChecklistItem {
+  team_number: string;
+  inspection: InspectionStatus;
+  bot_video: boolean;
+  team_video: boolean;
+  done: number;
+  total: number;
+  complete: boolean;
 }
 
 export interface TeamProfileUpdate {
@@ -330,6 +344,7 @@ export interface TeamProfileUpdate {
   extra_notes?: string | null;
   /** http(s) link for the public team page; an empty string clears it. */
   website_url?: string | null;
+  inspection_status?: InspectionStatus;
 }
 
 export interface VideoProcessingStatus {

@@ -1,12 +1,18 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useTeams } from '../api/teams';
+import { useTeamChecklist, useTeams } from '../api/teams';
+import { ChecklistMark } from '../components/teams/ChecklistCard';
+import { INSPECTION_LABELS } from '../lib/checklist';
 import { useDebounce } from '../hooks/useDebounce';
 import { PageHeader, Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 
 export function TeamsPage() {
   const { data: teams, isLoading } = useTeams();
+  const { data: checklist } = useTeamChecklist();
+  const [incompleteOnly, setIncompleteOnly] = useState(false);
+  const byTeam = new Map((checklist ?? []).map((c) => [c.team_number, c]));
+  const completeCount = (checklist ?? []).filter((c) => c.complete).length;
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 200);
 
@@ -21,7 +27,7 @@ export function TeamsPage() {
     (t) =>
       t.team_number.toLowerCase().includes(needle) ||
       (t.robot_name ?? '').toLowerCase().includes(needle),
-  );
+  ).filter((t) => !incompleteOnly || !byTeam.get(t.team_number)?.complete);
 
   return (
     <div>
@@ -30,8 +36,24 @@ export function TeamsPage() {
         placeholder="Search by team number or robot name…"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="mb-4 max-w-xs"
+        className="mb-2 max-w-xs"
       />
+      {checklist && (
+        <div className="mb-4 flex items-center gap-4 text-sm text-vmd-textMuted">
+          <span>
+            Checklist complete: {completeCount}/{checklist.length} teams
+          </span>
+          <label className="inline-flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={incompleteOnly}
+              onChange={(e) => setIncompleteOnly(e.target.checked)}
+              aria-label="Show incomplete only"
+            />
+            Incomplete only
+          </label>
+        </div>
+      )}
 
       {isLoading && <p className="text-sm text-vmd-textSubtle">Loading…</p>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -44,6 +66,16 @@ export function TeamsPage() {
               <p className="mt-1 text-xs text-vmd-textSubtle">
                 Video: {team.video_processing_status}
               </p>
+              {byTeam.get(team.team_number) && (
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1" aria-label={`Checklist for ${team.team_number}`}>
+                  <ChecklistMark
+                    done={byTeam.get(team.team_number)!.inspection === 'PASSED'}
+                    label={`Inspection: ${INSPECTION_LABELS[byTeam.get(team.team_number)!.inspection]}`}
+                  />
+                  <ChecklistMark done={byTeam.get(team.team_number)!.bot_video} label="360" />
+                  <ChecklistMark done={byTeam.get(team.team_number)!.team_video} label="Team video" />
+                </div>
+              )}
             </Card>
           </Link>
         ))}

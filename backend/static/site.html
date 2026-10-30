@@ -243,6 +243,14 @@
     var c = t.current;
     g.appendChild(kv('Current competition', [['Qualification rank', c.qual_rank], ['Record (W-L-T)', c.wins === null ? null : c.wins + '-' + c.losses + '-' + c.ties], ['Average points', num(c.avg_points, 1)], ['Highest score', c.high_score], ['Skills rank', c.skills_rank], ['Skills total', c.skills_total], ['Driver / Prog', num(c.skills_driver) + ' / ' + num(c.skills_prog)], ['Attempts (D/P)', num(c.skills_driver_attempts) + ' / ' + num(c.skills_prog_attempts)]]));
     g.appendChild(kv('Season', [['Events attended', t.season.events_attended], ['Awards', t.season.awards], ['Skills rank (season)', t.season.world_skills_rank]]));
+    if (t.checklist) {
+      var ck = t.checklist, labels = { NOT_STARTED: 'Not started', IN_PROGRESS: 'In progress', PASSED: 'Passed' };
+      g.appendChild(kv('Checklist (' + ck.done + '/' + ck.total + ')', [
+        ['Inspection', (ck.inspection === 'PASSED' ? '✓ ' : '') + (labels[ck.inspection] || ck.inspection)],
+        ['360 robot video', ck.bot_video ? '✓ Done' : 'Not yet'],
+        ['Team video', ck.team_video ? '✓ Done' : 'Not yet']
+      ]));
+    }
     box.appendChild(g);
 
     if (t.clips.bot || t.clips.team) {
