@@ -275,6 +275,7 @@ One folder per domain under `backend/modules/integrations/<domain>/` with `manif
 | `osc` | Generic OSC sender | `ip`, `port` | `send(address, args?)`, `send_bundle(messages)` | `vfx:control` |
 | `wled` | WLED LED strips (JSON API) | `host`, `port` | `set_power(on)`, `set_brightness`, `set_color`, `set_preset`, `set_effect(effect, speed?, intensity?)`, `flash(color?, count?, interval_ms?)` | `vfx:control` |
 | `ptz` | PTZ camera (VISCA over IP, UDP 52381) | `host`, `port`, `camera_address` (1–7) | `recall_preset`, `store_preset`, `move(direction, speed?)`, `stop`, `home`, `zoom(direction, speed?)` | `video:control` |
+| `artnet` | Art-Net (DMX over IP) for MagicQ virtual sliders via a Node 1 Universe | `ip` (or broadcast), `port` (6454), `universe` (0–32767), `refresh_hz` (4) | `set_channels(start, values)`, `set_slider(channel, level \| percent)`, `fade(channel, level \| percent, duration_ms)`, `blackout` | `vfx:control` |
 
 `*` = `secret: true`, Fernet-encrypted at rest. Service calls fail closed (403) for a domain with no entry in `_DOMAIN_PERMISSIONS` (`routers/integrations.py`) — add one when adding a domain. BirdDog X1 compatibility for `ptz` is unverified; WLED/OSC/PTZ were added in issue #7.
 
@@ -295,6 +296,7 @@ PKCE flow runs in the browser (frontend `SpotifyAuthButton`, callback at `/integ
 
 - **ATEM:** `PyATEMMax` is synchronous — all calls via `asyncio.to_thread`; its receive loop runs in a thread started in `setup()` and joined in `teardown()`; cross-thread signalling uses `loop.call_soon_threadsafe`.
 - **ZerOS:** `python-osc`; fire-and-forget sends via `asyncio.to_thread`. Presets (name ↔ number) are managed in the UI (`/api/v1/zeros/presets`) and offered as a dropdown in the builder; the Integrations page also has a fire-preset button.
+- **Art-Net (#39):** non-blocking asyncio UDP (no thread). Holds one 512-channel universe buffer; services mutate it and a keep-alive loop re-sends it `refresh_hz` times a second (nodes drop output when frames stop). Fades run as per-channel tasks at ~30 Hz; a manual set on a channel cancels its fade; `blackout` zeroes everything. Sequence runs 1–255. Tests: `tests/test_integrations/test_artnet_unit.py` (real UDP listener).
 - **OBS:** `obs-websocket-py` 1.x (async-native). Scene list is fetched on `setup()`, cached in Redis, refreshable from the UI. Disconnects set `DEGRADED` and trigger reconnect.
 
 ## 9. Automation and scripting engine
@@ -552,7 +554,7 @@ These are registered before the SPA catch-all.
 | `overlays:read` / `:edit` | view / modify overlays and spotlight |
 | `teams:read` / `:edit` | view / edit profiles, logo |
 | `video:upload` | upload team videos and clips |
-| `tm:control`, `audio:control`, `video:control`, `vfx:control` | call services on `vex_tm`; `spotify`; `atem`/`obs`/`ptz`; `zeros`/`osc`/`wled` |
+| `tm:control`, `audio:control`, `video:control`, `vfx:control` | call services on `vex_tm`; `spotify`; `atem`/`obs`/`ptz`; `zeros`/`osc`/`wled`/`artnet` |
 | `rooms:read` / `:manage` | view / modify rooms |
 | `notifications:receive` / `:broadcast` / `:manage` | staff push / broadcast / test + stats |
 | `buttons:read` / `:press` / `:manage` | view / press / modify button pages |
@@ -713,7 +715,6 @@ Not implemented yet. Decisions recorded here are agreed; implementation details 
 | #42 | Match recording + per-team tagging | Recordings come from the #45 agent (not OBS); tagged with the match key and the teams; shown per team on the public site / team profiles. Replaces manual URL import as the source of `match_recordings` |
 | #38 | Instant replay | Finals only; marks key moments from the analysis deck (last 3s / 5s / 10s buttons, keyboard-mappable; exact timestamp stamped on the agent's recording clock) and cuts clips from the match recording, uploaded to `{matchType}/{matchNumber}/segments/moment-N`; LED-flash button; moments saved to team profiles; blank slate each match. Depends on #45 and #42 |
 | #41 | Analysis/host desk | Finals only; stats screen (2 teams IQ / 4 teams VRC per page, arrows or match-number entry) plus a match screen (live program feed and mark buttons during the match; after the match, moment list and full video, send to program = the server tells a replay player page (an OBS browser source served by the web server, streaming from the object store via presigned GET URLs) to play it, and the deck switches OBS to that scene via `obs.switch_scene`; a video must be uploaded before it can be played; pause, speed 0.5× default / 0.25 / 0.75 / 1×). Never shows predicted scores. Depends on #38, #45, #42 |
-| #39 | **Art-Net integration** (`artnet`) | Drive MagicQ virtual sliders; continues the "we are using MagicQ" decision from #6; needs a `_DOMAIN_PERMISSIONS` entry (likely `vfx:control`) |
 | #43 | Team checklist | Inspection, 360 bot video, team video; inspection status source undecided |
 | #44 | Pit admin / lost & found alerts | Targeted per-team push; reuse the notifications system |
 | #29 | Validate VEX Events API against the live service | Open; also refresh `backend/tests/mock_tm_server.py` |
@@ -729,3 +730,4 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 - **Feature additions (issue/PR):** notifications & rooms (#5), WLED/OSC/PTZ (#7), desk↔iPad comms (#8), public site (#10), button pages (#11), Robot 360 overlays + clip recorder (#1/#12), late warnings & agenda announcements (#22), robot-name opt-in & spotlight (#24), visual button builder (#25), comms secure links/PIN/timers/presence/agenda tools (#27), site extras — leaderboards, recordings, logos, bus tracker (#28), Playwright e2e suite (#30).
 - **2026-10-30:** `tm_update_plan.md` consolidated into this file (`source-of-truth.md`) and verified against the code. Same day: added planned work (§22.1) from the QE Comp 26 planning deck — overlay rework (#13), replay chain (#45/#42/#38/#41), Art-Net (#39), checklist (#43), pit alerts (#44) — and recorded that the scraper uses the VEX Events API (events.vex.com).
 - **2026-10-30:** planned-work notes updated: capture agent `reencode`/`video_bitrate` settings, clip-priority rules, IQ storage sizing, recordings cleared between events, and the server described as a portable Docker stack (#45, #46).
+- **2026-10-30:** Art-Net integration (`artnet`, #39) implemented.

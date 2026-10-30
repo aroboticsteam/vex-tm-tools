@@ -91,6 +91,7 @@ async def test_discover_registers_all_domains_against_real_infra(real_redis, rea
         "wled",
         "osc",
         "ptz",
+        "artnet",
     }
 
 
