@@ -198,3 +198,26 @@ async def test_livestreams_only_rooms_with_streams(client):
 async def test_site_page_served(client):
     page = await client.get("/site")
     assert page.status_code == 200 and "text/html" in page.headers["content-type"] and "/api/v1/public/site/" in page.text
+
+
+async def test_team_detail_includes_checklist(client):
+    await seed(client)
+    t = (await client.get(f"/api/v1/public/site/teams/{PREFIX}1A")).json()
+    # seed() gives 1A a finished team clip but no bot clip, and no inspection yet
+    assert t["checklist"] == {
+        "team_number": f"{PREFIX}1A",
+        "inspection": "NOT_STARTED",
+        "bot_video": False,
+        "team_video": True,
+        "done": 1,
+        "total": 3,
+        "complete": False,
+    }
+    sparse = (await client.get(f"/api/v1/public/site/teams/{PREFIX}3C")).json()
+    assert sparse["checklist"]["done"] == 0
+
+
+async def test_site_page_renders_checklist_card(client):
+    resp = await client.get("/site")
+    assert resp.status_code == 200
+    assert "Checklist (" in resp.text and "360 robot video" in resp.text

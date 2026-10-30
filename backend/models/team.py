@@ -37,6 +37,8 @@ class TeamProfile(Base):
     #: Public team page extras (issue #28), edited by staff.
     website_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     logo_s3_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    #: Team checklist (issue #43): NOT_STARTED / IN_PROGRESS / PASSED, set by staff.
+    inspection_status: Mapped[str] = mapped_column(String(20), server_default="NOT_STARTED")
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now()
     )

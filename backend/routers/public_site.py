@@ -27,9 +27,11 @@ from backend.models.match_recording import MatchRecording
 from backend.models.room import Room
 from backend.models.settings import SystemSetting
 from backend.models.team import TeamProfile
+from backend.models.team_clip import TeamClip
 from backend.modules.media import s3
 from backend.modules.notifications.logic import ScheduledMatch, match_key, parse_schedule
 from backend.modules.site import leaderboards as lb
+from backend.modules.site.checklist import checklist_for
 from backend.routers.team_clips import clip_urls_for
 
 logger = logging.getLogger(__name__)
@@ -400,6 +402,9 @@ async def team(
     ]
     schedule.sort(key=lambda m: (m["scheduled_at"] is None, m["scheduled_at"] or 0))
     urls = (await clip_urls_for(db, [number], {number: profile}))[number]
+    clip_rows = {
+        c.kind: c for c in (await db.execute(select(TeamClip).where(TeamClip.team_number == number))).scalars()
+    }
     logo_url = None
     if profile.logo_s3_key:
         try:
@@ -433,6 +438,7 @@ async def team(
         },
         "schedule": schedule,
         "clips": {"bot": urls.get("bot"), "team": urls.get("team")},
+        "checklist": checklist_for(profile, clip_rows),
     }
 
 
