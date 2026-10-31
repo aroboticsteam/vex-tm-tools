@@ -101,7 +101,11 @@ test.describe('public site and its admin tools', () => {
 
     await page.goto('/teams/E2E1A');
     await page.getByLabel('Team website').fill('https://gearsquad.example.com');
+    // Wait for the save to land: the logo upload refetches the team and would
+    // otherwise reset the form before the website is stored.
+    const saved = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().includes('/api/v1/teams/E2E1A') && r.ok());
     await page.getByRole('button', { name: 'Save' }).click();
+    await saved;
     await page.getByLabel('Upload team logo').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG });
     await expect(page.getByText('Logo uploaded').first()).toBeVisible();
 
