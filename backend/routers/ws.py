@@ -97,10 +97,11 @@ class ConnectionManager:
 
     # ── Frozen public API ────────────────────────────────────────────
 
-    async def connect(self, entity_id: str, ws: WebSocket, *, receive_all: bool = True) -> None:
-        """`receive_all=False` keeps the socket out of the `broadcast_all`
-        fan-out, for sockets that must only get messages addressed to their
-        bucket (the capture agent and the replay player)."""
+    async def connect(self, entity_id: str, ws: WebSocket, *, receive_all: bool = False) -> None:
+        """Only `receive_all=True` sockets (the authenticated `/ws/events`
+        feed) join the `broadcast_all` fan-out. Every other socket - public
+        room/station/overlay/prompter pages, the capture agent, the replay
+        player - only gets messages addressed to its own bucket."""
         await ws.accept()
         self._by_entity[entity_id].add(ws)
         if receive_all:
@@ -438,7 +439,7 @@ async def ws_events(websocket: WebSocket) -> None:
     if not await _ws_is_authenticated(websocket):
         await websocket.close(code=WS_CLOSE_POLICY_VIOLATION, reason="Authentication required")
         return
-    await manager.connect(EVENTS_BUCKET, websocket)
+    await manager.connect(EVENTS_BUCKET, websocket, receive_all=True)
     try:
         while True:
             await websocket.receive_text()
@@ -718,7 +719,7 @@ async def ws_agent(websocket: WebSocket) -> None:
         await websocket.close(code=WS_CLOSE_POLICY_VIOLATION, reason="A capture API key is required")
         return
 
-    await manager.connect(capture_hub.AGENT_BUCKET, websocket, receive_all=False)
+    await manager.connect(capture_hub.AGENT_BUCKET, websocket)
     info: dict[str, Any] = {"connected_at": time.time(), "state": "idle"}
     try:
         await capture_hub.set_presence(redis_client, info)
@@ -764,7 +765,7 @@ async def ws_replay(websocket: WebSocket, entity_id: str) -> None:
         await websocket.close(code=WS_CLOSE_POLICY_VIOLATION, reason="Invalid replay id")
         return
     bucket = replay_module.BUCKET_PREFIX + entity_id
-    await manager.connect(bucket, websocket, receive_all=False)
+    await manager.connect(bucket, websocket)
     try:
         state = await replay_module.get_state(redis_client, entity_id)
         if state.get("playing"):

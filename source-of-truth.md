@@ -1,6 +1,6 @@
 # TMTools (QEComp) — Source of Truth
 
-**Last verified against the codebase:** 2026-10-30 (`main` @ `c832fb6` + `feat/capture-backend`, Alembic head `b9c1d2e3f4a5`)
+**Last verified against the codebase:** 2026-10-31 (`main` + `fix/ws-broadcast-scope`, Alembic head `c1d2e3f4a5b6`)
 
 This is the single authoritative description of what is in this repository: architecture, decisions, data model, API surface, RBAC, frontend, deployment and tests. It replaces `tm_update_plan.md` (the original v3.0 rewrite plan). Where the old plan and the code disagreed, **the code wins** and this document records the code.
 
@@ -559,7 +559,7 @@ Generated reference: [`docs/API.md`](docs/API.md) and the live `/docs` (Swagger)
 | `/ws/room/{slug}` | none (slug) | alerts/notices for the room display |
 | `/ws/station/{slug}` | slug (+ access key / PIN token if secured) | comms: `message`, `screen`, `timer`, `notice` |
 
-`ConnectionManager` (in `routers/ws.py`): `connect`, `disconnect`, `broadcast(entity_id, msg)`, `broadcast_all(msg)`; `connect(..., receive_all=False)` keeps a socket out of the `broadcast_all` fan-out (the agent socket, so it only gets commands addressed to it); one Redis pub/sub subscriber per node fans `qecomp:events` out to local sockets.
+`ConnectionManager` (in `routers/ws.py`): `connect`, `disconnect`, `broadcast(entity_id, msg)`, `broadcast_all(msg)`. **Only `/ws/events` (authenticated) connects with `receive_all=True` and joins the `broadcast_all` firehose** (every bus event, predictions redacted); `receive_all` defaults to `False`, so the public room/station/overlay/prompter pages, the replay player and the agent socket only receive messages addressed to their own bucket via the dedicated `_dispatch_*` handlers (`timer_*` state, `upcoming_match` + ⚡ flag, `show_team`, `notice`, station `message`/`screen`/`timer`, `replay_command`, `capture_command`). One Redis pub/sub subscriber per node fans `qecomp:events` out to local sockets. Tests: `tests/test_ws_scope.py`.
 
 ## 13. Standalone and public pages
 
@@ -778,3 +778,4 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 - **2026-10-30:** planned-work notes updated: capture agent `reencode`/`video_bitrate` settings, clip-priority rules, IQ storage sizing, recordings cleared between events, and the server described as a portable Docker stack (#45, #46).
 - **2026-10-30:** Art-Net integration (`artnet`, #39) implemented.
 - **2026-10-30:** Team checklist (#43) implemented: `team_profiles.inspection_status`, `GET /api/v1/teams/checklist`, admin Teams/TeamDetail UI, public team page card.
+- **2026-10-31:** WebSocket scope fix: only the authenticated `/ws/events` socket receives the broadcast-all bus feed; public pages (room, station, overlay, prompter) get only their own bucket plus dedicated handlers. `ConnectionManager.connect` now defaults `receive_all=False`.
