@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.core.dependencies import get_db
 from backend.core.security import generate_prompter_token
 from backend.models.overlay import OverlayInstance
+from backend.modules.capture import replay
 from backend.models.settings import SystemSetting
 from backend.models.timer import TimerInstance
 
@@ -44,6 +45,7 @@ _STATIC_DIR = Path(__file__).parent.parent / "static"
 # static asset baked into the image; a process restart is required (and
 # already expected) to pick up a change to it.
 _OVERLAY_HTML = (_STATIC_DIR / "overlay.html").read_text(encoding="utf-8")
+_REPLAY_HTML = (_STATIC_DIR / "replay.html").read_text(encoding="utf-8")
 
 #: `system_settings.key` gating the teleprompter index page (Appendix B.4).
 _PROMPTER_INDEX_SETTINGS_KEY = "prompter_index_token"
@@ -82,6 +84,20 @@ async def serve_overlay(
     # `backend.main.serve_prompter`.
     html_out = _OVERLAY_HTML.replace('"__ENTITY_ID__"', json.dumps(entity_id))
     return HTMLResponse(content=html_out)
+
+
+# ── GET /replay/{entity_id} (issue #41) ──────────────────────────────────
+
+
+@router.get("/replay/{entity_id}", response_class=HTMLResponse, tags=["replay"])
+async def serve_replay(entity_id: str) -> HTMLResponse:
+    """The replay player: an OBS browser source that plays whatever the
+    analysis deck sends to program. No auth and no database lookup — the id is
+    just a channel name the deck and the page agree on (same obscurity model
+    as the overlay)."""
+    if not replay.ENTITY_ID_RE.match(entity_id):
+        raise HTTPException(status_code=404, detail="Unknown replay player")
+    return HTMLResponse(content=_REPLAY_HTML.replace('"__ENTITY_ID__"', json.dumps(entity_id)))
 
 
 # ── GET /prompter (plan Appendix B.4) ────────────────────────────────────

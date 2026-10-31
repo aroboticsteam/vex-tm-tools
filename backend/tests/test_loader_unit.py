@@ -153,6 +153,7 @@ def test_discover_finds_all_domains():
         "osc",
         "ptz",
         "artnet",
+        "capture",
     }
     for domain, manifest in loader_module._MANIFESTS.items():
         assert "config_schema" in manifest

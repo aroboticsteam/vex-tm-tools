@@ -28,7 +28,7 @@ from sqlalchemy import select
 
 from backend import loader
 from backend.core.db import async_session_factory
-from backend.core.dependencies import ALL_PERMISSIONS
+from backend.core.dependencies import ALL_PERMISSIONS, _principal_from_api_key
 from backend.core.redis import redis_client
 from backend.core.security import validate_prompter_token
 from backend.core.sessions import SESSION_COOKIE_NAME, get_session, unsign_session_id
@@ -37,6 +37,9 @@ from backend.models.comms import Station
 from backend.modules.comms import access as station_access
 from backend.modules.comms import presence as station_presence
 from backend.models.room import Room
+from backend.modules.capture import hub as capture_hub
+from backend.modules.capture import replay as replay_module
+from backend.modules.capture import service as capture_service
 from backend.models.timer import PrompterCue, TimerInstance
 
 logger = logging.getLogger(__name__)
@@ -80,6 +83,7 @@ class ConnectionManager:
         self._all: set[WebSocket] = set()
         self._pubsub_task: asyncio.Task | None = None
         self._shutdown = asyncio.Event()
+        self._subscribed = asyncio.Event()
 
         # Set by `main.py` (mirroring how `routers/timers.py` reaches the
         # leader-only `TimerManager` via `app.state.timer_manager`) so this
@@ -93,10 +97,14 @@ class ConnectionManager:
 
     # ── Frozen public API ────────────────────────────────────────────
 
-    async def connect(self, entity_id: str, ws: WebSocket) -> None:
+    async def connect(self, entity_id: str, ws: WebSocket, *, receive_all: bool = True) -> None:
+        """`receive_all=False` keeps the socket out of the `broadcast_all`
+        fan-out, for sockets that must only get messages addressed to their
+        bucket (the capture agent and the replay player)."""
         await ws.accept()
         self._by_entity[entity_id].add(ws)
-        self._all.add(ws)
+        if receive_all:
+            self._all.add(ws)
 
     async def disconnect(self, entity_id: str, ws: WebSocket) -> None:
         bucket = self._by_entity.get(entity_id)
@@ -132,7 +140,12 @@ class ConnectionManager:
 
     async def start(self) -> None:
         self._shutdown.clear()
+        self._subscribed = asyncio.Event()
         self._pubsub_task = asyncio.create_task(self._listen())
+        # Don't return until the subscription is live, so an event published
+        # right after startup (or a test's first command) is not lost.
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(self._subscribed.wait(), timeout=5)
 
     async def stop(self) -> None:
         self._shutdown.set()
@@ -148,6 +161,7 @@ class ConnectionManager:
         pubsub = self._redis.pubsub()
         try:
             await pubsub.subscribe(EVENTS_CHANNEL)
+            self._subscribed.set()
             while not self._shutdown.is_set():
                 try:
                     message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
@@ -195,6 +209,10 @@ class ConnectionManager:
             await self._dispatch_station_event(event_type, data)
         elif event_type == "overlay_show_team" and entity_id:
             await self._dispatch_overlay_show_team(entity_id, data)
+        elif event_type == "replay_command" and entity_id:
+            await self.broadcast(replay_module.BUCKET_PREFIX + entity_id, data.get("payload") or {})
+        elif event_type == "capture_command":
+            await self.broadcast(capture_hub.AGENT_BUCKET, data.get("payload") or {})
 
     async def _dispatch_station_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Desk -> iPad: forwards a message or screen change to each named
@@ -675,3 +693,94 @@ async def ws_overlay(websocket: WebSocket, entity_id: str) -> None:
         pass
     finally:
         await manager.disconnect(entity_id, websocket)
+
+
+# ── /ws/agent ──────────────────────────────────────────────────────────
+
+#: The agent sends a status message at least this often; presence expires
+#: `capture_hub.PRESENCE_TTL_S` after the last one.
+AGENT_MESSAGE_TYPES = {"hello", "status", "recording_started", "recording_stopped", "moment_cut", "error"}
+
+
+@router.websocket("/ws/agent")
+async def ws_agent(websocket: WebSocket) -> None:
+    """The capture agent connects outward with its scoped `qec_` key
+    (`Authorization: Bearer ...` or `?key=`) holding `capture:upload`.
+    The server sends `start_recording` / `stop_recording` / `mark`; the agent
+    reports `status`, `recording_stopped`, `moment_cut` and `error`."""
+    raw_key = websocket.query_params.get("key", "")
+    header = websocket.headers.get("authorization", "")
+    if header.lower().startswith("bearer "):
+        raw_key = header[7:].strip()
+    async with async_session_factory() as session:
+        principal = await _principal_from_api_key(session, raw_key)
+    if principal is None or not principal.has_permission("capture:upload"):
+        await websocket.close(code=WS_CLOSE_POLICY_VIOLATION, reason="A capture API key is required")
+        return
+
+    await manager.connect(capture_hub.AGENT_BUCKET, websocket, receive_all=False)
+    info: dict[str, Any] = {"connected_at": time.time(), "state": "idle"}
+    try:
+        await capture_hub.set_presence(redis_client, info)
+        await capture_hub.publish(redis_client, "capture_status", {"connected": True, **info})
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                msg = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(msg, dict) or msg.get("type") not in AGENT_MESSAGE_TYPES:
+                continue
+            if msg["type"] in ("hello", "status"):
+                for field in ("agent_id", "version", "state", "detail", "settings"):
+                    if field in msg:
+                        info[field] = msg[field]
+                info["last_seen"] = time.time()
+                await capture_hub.set_presence(redis_client, info)
+                await capture_hub.publish(redis_client, "capture_status", {"connected": True, **info})
+            else:
+                await capture_hub.set_presence(redis_client, info)
+                await capture_service.handle_agent_message(redis_client, async_session_factory, msg)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await manager.disconnect(capture_hub.AGENT_BUCKET, websocket)
+        if not manager._by_entity.get(capture_hub.AGENT_BUCKET):
+            with contextlib.suppress(Exception):
+                await capture_hub.clear_presence(redis_client)
+                await capture_hub.publish(redis_client, "capture_status", {"connected": False})
+
+
+# ── /ws/replay/{entity_id} ─────────────────────────────────────────────
+
+
+@router.websocket("/ws/replay/{entity_id}")
+async def ws_replay(websocket: WebSocket, entity_id: str) -> None:
+    """No auth, like the overlay: the replay player page is only ever pasted
+    into an OBS browser source. Receives `play`, `pause`, `resume`, `rate`,
+    `seek`, `restart` and `stop`; a fresh connection first gets the current
+    state so a reloaded source resumes what was on."""
+    if not replay_module.ENTITY_ID_RE.match(entity_id):
+        await websocket.close(code=WS_CLOSE_POLICY_VIOLATION, reason="Invalid replay id")
+        return
+    bucket = replay_module.BUCKET_PREFIX + entity_id
+    await manager.connect(bucket, websocket, receive_all=False)
+    try:
+        state = await replay_module.get_state(redis_client, entity_id)
+        if state.get("playing"):
+            await websocket.send_json(
+                {
+                    "type": "play",
+                    "url": state.get("url"),
+                    "label": state.get("label"),
+                    "rate": state.get("rate", replay_module.DEFAULT_RATE),
+                    "loop": bool(state.get("loop")),
+                    "paused": bool(state.get("paused")),
+                }
+            )
+        while True:
+            await websocket.receive_text()  # keepalive pings from the page
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await manager.disconnect(bucket, websocket)

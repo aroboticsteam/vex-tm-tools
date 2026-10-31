@@ -1,0 +1,31 @@
+services:
+  start_recording:
+    description: "Start recording a match. Pass the TM match tuple (e.g. `match: {{ trigger.payload.match }}`) and the teams."
+    fields:
+      match:
+        type: object
+        required: false
+      round:
+        type: string
+        required: false
+      instance:
+        type: integer
+        required: false
+      match_num:
+        type: integer
+        required: false
+      red_teams:
+        type: array
+        required: false
+      blue_teams:
+        type: array
+        required: false
+  stop_recording:
+    description: "Stop the active recording (no-op if nothing is recording)."
+    fields: {}
+  mark_moment:
+    description: "Mark a replay moment: cut the last N seconds of the active recording."
+    fields:
+      seconds:
+        type: number
+        required: true

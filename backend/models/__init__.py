@@ -7,6 +7,7 @@ Import every model module here so that `Base.metadata` (from
 from backend.core.db import Base  # noqa: F401
 
 from backend.models.audit import AuditLog  # noqa: F401
+from backend.models.capture import CaptureMoment, CaptureRecording  # noqa: F401
 from backend.models.automation import Automation, AutomationFolder, AutomationRun, Script  # noqa: F401
 from backend.models.integration import IntegrationInstance, ZerosPreset  # noqa: F401
 from backend.models.notification import NotificationLog, PushSubscription, PushSubscriptionTeam  # noqa: F401
@@ -23,6 +24,8 @@ from backend.models.timer import PrompterCue, TimerInstance  # noqa: F401
 __all__ = [
     "Base",
     "AuditLog",
+    "CaptureMoment",
+    "CaptureRecording",
     "Automation",
     "AutomationFolder",
     "AutomationRun",

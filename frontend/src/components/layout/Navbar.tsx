@@ -17,6 +17,7 @@ import {
   Bug,
   Activity,
   DoorOpen,
+  Clapperboard,
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
@@ -40,6 +41,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/timers', label: 'Timers', icon: Timer },
   { to: '/overlays', label: 'Overlays', icon: Presentation },
   { to: '/teams', label: 'Teams', icon: Users2 },
+  { to: '/analysis', label: 'Analysis', icon: Clapperboard },
   { to: '/record', label: 'Record Clips', icon: Video },
   { to: '/rooms', label: 'Rooms', icon: DoorOpen },
   { to: '/comms', label: 'Comms', icon: Radio },
@@ -60,6 +62,7 @@ export function Navbar() {
   const subject = useAuthStore((s) => s.subject);
   const clearAuth = useAuthStore((s) => s.clear);
   const canViewDebug = usePermission('settings:edit');
+  const canViewAnalysis = usePermission('analysis:view');
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSuccess: () => {
@@ -72,7 +75,7 @@ export function Navbar() {
     <nav className="vmd-navbar mx-4 mt-4 flex flex-wrap items-center gap-1 lg:mx-8">
       <span className="mr-4 text-sm font-semibold tracking-wide text-vmd-textStrong">TMTools</span>
       <div className="flex flex-1 flex-wrap gap-1">
-        {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
+        {NAV_ITEMS.filter(({ to }) => to !== '/analysis' || canViewAnalysis).map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}

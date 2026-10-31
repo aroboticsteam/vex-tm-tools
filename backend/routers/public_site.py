@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.dependencies import get_db, get_redis
 from backend.models.comms import AgendaItem
+from backend.models.capture import CaptureRecording
 from backend.models.match_recording import MatchRecording
 from backend.models.room import Room
 from backend.models.settings import SystemSetting
@@ -198,8 +199,19 @@ def _leaderboard_timing(config: dict[str, Any]) -> dict[str, int]:
 
 
 async def _recordings(db: AsyncSession) -> dict[str, str]:
+    """Match key -> video link: videos captured by the agent (issue #42), with
+    an explicitly imported link taking precedence."""
+    captured = (
+        await db.execute(
+            select(CaptureRecording.match_key, CaptureRecording.id).where(
+                CaptureRecording.status == "READY", CaptureRecording.object_key.is_not(None)
+            )
+        )
+    ).all()
+    out = {key: f"/api/v1/public/recordings/{rid}/video" for key, rid in captured}
     rows = (await db.execute(select(MatchRecording.match_key, MatchRecording.url))).all()
-    return {key: url for key, url in rows}
+    out.update({key: url for key, url in rows})
+    return out
 
 
 def _recording_url(

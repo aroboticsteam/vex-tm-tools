@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<!--
+  Replay player (issue #41): an OBS browser source, 1920x1080.
+
+  Served by FastAPI at GET /replay/{entity_id} (the id is substituted for the
+  "__ENTITY_ID__" placeholder, JSON-encoded). The analysis deck's "send to
+  program" tells the server which video to play; the server pushes it here over
+  /ws/replay/{entity_id}. The video streams from the object store through a
+  presigned URL, so nothing depends on the capture agent or on this machine
+  having the file. No auth, like the overlay page: the URL is only ever pasted
+  into OBS. When nothing is playing the page is fully transparent.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TMTools Replay</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 1920px; height: 1080px; background: transparent; overflow: hidden; }
+  #stage { position: relative; width: 1920px; height: 1080px; background: transparent; }
+  #player { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; opacity: 0; transition: opacity 200ms ease; }
+  #player.on { opacity: 1; }
+  #label { position: absolute; left: 48px; bottom: 48px; padding: 8px 22px; font: 600 34px -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: #fff; background: rgba(0, 0, 0, 0.55); border-radius: 8px; opacity: 0; transition: opacity 200ms ease; }
+  #label.on { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="player" playsinline preload="auto"></video>
+  <div id="label"></div>
+</div>
+<script>
+(function () {
+  "use strict";
+  var CONFIG = { entityId: "__ENTITY_ID__" };
+  if (CONFIG.entityId === "__ENTITY_ID__") {
+    var path = window.location.pathname.split("/").filter(Boolean);
+    var idx = path.indexOf("replay");
+    if (idx !== -1 && path[idx + 1]) CONFIG.entityId = decodeURIComponent(path[idx + 1]);
+  }
+  var query = new URLSearchParams(window.location.search);
+  var showLabel = query.get("label") === "1"; // optional "Q 36 · moment 2" caption
+  var video = document.getElementById("player");
+  var labelEl = document.getElementById("label");
+  var rate = 0.5;
+
+  function play(msg) {
+    if (!msg.url) return;
+    rate = Number(msg.rate) || 0.5;
+    video.loop = !!msg.loop;
+    video.src = msg.url;
+    video.load();
+    video.playbackRate = rate;
+    video.classList.add("on");
+    if (showLabel && msg.label) { labelEl.textContent = msg.label; labelEl.classList.add("on"); }
+    var p = msg.paused ? null : video.play();
+    if (p && p.catch) p.catch(function () {});
+  }
+
+  function stop() {
+    video.pause();
+    video.classList.remove("on");
+    labelEl.classList.remove("on");
+    // Drop the source once the fade has finished so nothing keeps buffering.
+    window.setTimeout(function () { if (!video.classList.contains("on")) { video.removeAttribute("src"); video.load(); } }, 300);
+  }
+
+  function handle(msg) {
+    if (!msg || typeof msg !== "object") return;
+    switch (msg.type) {
+      case "play": play(msg); break;
+      case "pause": video.pause(); break;
+      case "resume": video.play().catch(function () {}); break;
+      case "restart": video.currentTime = 0; video.play().catch(function () {}); break;
+      case "rate": rate = Number(msg.value) || rate; video.playbackRate = rate; break;
+      case "seek": video.currentTime = Math.max(0, Number(msg.value) || 0); break;
+      case "stop": stop(); break;
+      default: break;
+    }
+  }
+
+  // The browser resets playbackRate when the source changes; keep it applied.
+  video.addEventListener("loadedmetadata", function () { video.playbackRate = rate; });
+  video.addEventListener("playing", function () { if (video.playbackRate !== rate) video.playbackRate = rate; });
+
+  var DELAYS = [1000, 2000, 4000, 8000, 16000, 30000];
+  var attempt = 0;
+  function connect() {
+    var proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    var ws;
+    try { ws = new WebSocket(proto + "//" + window.location.host + "/ws/replay/" + encodeURIComponent(CONFIG.entityId)); }
+    catch (e) { return retry(); }
+    ws.onopen = function () { attempt = 0; };
+    ws.onmessage = function (ev) { try { handle(JSON.parse(ev.data)); } catch (e) { /* ignore */ } };
+    ws.onclose = retry;
+  }
+  function retry() { window.setTimeout(connect, DELAYS[Math.min(attempt++, DELAYS.length - 1)]); }
+  connect();
+
+  window.__replayTestHooks = { handle: handle, video: video };
+})();
+</script>
+</body>
+</html>
