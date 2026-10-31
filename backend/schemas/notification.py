@@ -1,9 +1,10 @@
 """Pydantic schemas for push subscriptions and staff broadcasts."""
 from __future__ import annotations
 
+from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from backend.schemas.room import SLUG_PATTERN
 
@@ -113,3 +114,44 @@ class NotificationStats(BaseModel):
     team_subscriptions: int
     staff_subscriptions: int
     subscriptions_by_room: dict[str, int]
+
+
+class TeamAlertRequest(BaseModel):
+    """Staff alert addressed to specific teams (issue #44)."""
+
+    teams: list[str] = Field(..., min_length=1, max_length=MAX_TEAMS_PER_SUBSCRIPTION)
+    reason: Literal["pit_admin", "lost_and_found", "custom"]
+    #: Required for `custom`; for the presets it is an optional extra line.
+    message: str | None = Field(default=None, max_length=300)
+    push: bool = True
+
+    @field_validator("teams")
+    @classmethod
+    def _normalise(cls, v: list[str]) -> list[str]:
+        out: list[str] = []
+        for t in v:
+            t = t.strip().upper()
+            if t and t not in out:
+                out.append(t)
+        if not out:
+            raise ValueError("Select at least one team")
+        return out
+
+    @field_validator("message")
+    @classmethod
+    def _strip(cls, v: str | None) -> str | None:
+        return (v or "").strip() or None
+
+    @model_validator(mode="after")
+    def _custom_needs_message(self) -> "TeamAlertRequest":
+        if self.reason == "custom" and not self.message:
+            raise ValueError("A message is required for a custom alert")
+        return self
+
+
+class TeamAlertResult(BaseModel):
+    rooms: int
+    pushed: int
+    #: Teams that no room display and no phone subscription could reach, so
+    #: staff know to find them another way.
+    unreached_teams: list[str]

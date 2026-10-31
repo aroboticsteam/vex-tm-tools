@@ -28,6 +28,7 @@ from backend.core.dependencies import CurrentPrincipal, get_db, get_redis, requi
 from backend.core.settings import settings
 from backend.models.notification import KIND_STAFF, KIND_TEAM, PushSubscription, PushSubscriptionTeam
 from backend.models.room import Room, RoomTeam
+from backend.models.team import TeamProfile
 from backend.modules.notifications import delivery
 from backend.schemas.notification import (
     BroadcastRequest,
@@ -35,6 +36,8 @@ from backend.schemas.notification import (
     EndpointRef,
     NotificationStats,
     StaffSubscribe,
+    TeamAlertRequest,
+    TeamAlertResult,
     SubscriptionStatus,
     TeamSubscribe,
     VapidKey,
@@ -227,6 +230,33 @@ async def send_broadcast(
         changes={"title": body.title, "message": body.message, "push": body.push},
     )
     return BroadcastResult(**result)
+
+
+@router.post("/notifications/team-alert", response_model=TeamAlertResult)
+async def send_team_alert(
+    body: TeamAlertRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[Any, Depends(get_redis)],
+    principal: Annotated[CurrentPrincipal, Depends(require_permission("notifications:broadcast"))],
+) -> TeamAlertResult:
+    """Asks specific teams to come to pit admin / lost & found (issue #44)."""
+    known = set((await db.execute(select(TeamProfile.team_number).where(TeamProfile.team_number.in_(body.teams)))).scalars())
+    known |= set((await db.execute(select(RoomTeam.team_number).where(RoomTeam.team_number.in_(body.teams)))).scalars())
+    unknown = [t for t in body.teams if t not in known]
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"Unknown teams: {', '.join(unknown)}")
+    result = await delivery.alert_teams(
+        redis, async_session_factory, body.teams, body.reason, body.message, push=body.push
+    )
+    await log_action(
+        db,
+        principal.subject,
+        "team_alert",
+        "notification",
+        ",".join(body.teams),
+        changes={"reason": body.reason, "message": body.message, "push": body.push},
+    )
+    return TeamAlertResult(**result)
 
 
 @router.post("/notifications/test", response_model=BroadcastResult)

@@ -10,18 +10,11 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { Input, Label, Textarea } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { Toggle } from '../components/ui/Toggle';
+import { parseTeams } from '../lib/teams';
+import { TeamAlertCard } from '../components/teams/TeamAlertCard';
 import type { Room } from '../types/api';
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,49}$/;
-
-function parseTeams(text: string): string[] {
-  const seen: string[] = [];
-  for (const raw of text.split(/[\s,;]+/)) {
-    const team = raw.trim().toUpperCase();
-    if (team && !seen.includes(team)) seen.push(team);
-  }
-  return seen;
-}
 
 /** Rooms: named groups of teams. Each has a public display page (`/room/<slug>`,
  * with an optional livestream embed and live match alerts) and a QR code that
@@ -111,6 +104,7 @@ export function RoomsPage() {
       )}
 
       {canBroadcast && (rooms ?? []).length > 0 && <BroadcastCard rooms={rooms ?? []} />}
+      {canBroadcast && (rooms ?? []).length > 0 && <TeamAlertCard />}
       {canSeeStats && stats?.push_configured && <StaffPushCard staffCount={stats.staff_subscriptions} />}
 
       <RoomFormModal key={editing === null ? 'closed' : editing === 'new' ? 'new' : editing.slug} editing={editing} onClose={() => setEditing(null)} />

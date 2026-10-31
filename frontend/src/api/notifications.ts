@@ -1,6 +1,13 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiFetch } from '../lib/http';
-import type { BroadcastRequest, BroadcastResult, NotificationStats, StaffCategory } from '../types/api';
+import type {
+  BroadcastRequest,
+  BroadcastResult,
+  NotificationStats,
+  StaffCategory,
+  TeamAlertRequest,
+  TeamAlertResult,
+} from '../types/api';
 
 export function useNotificationStats(enabled = true) {
   return useQuery({
@@ -15,6 +22,13 @@ export function useBroadcast() {
   return useMutation({
     mutationFn: (body: BroadcastRequest) =>
       apiFetch<BroadcastResult>('/api/v1/notifications/broadcast', { method: 'POST', body }),
+  });
+}
+
+export function useTeamAlert() {
+  return useMutation({
+    mutationFn: (body: TeamAlertRequest) =>
+      apiFetch<TeamAlertResult>('/api/v1/notifications/team-alert', { method: 'POST', body }),
   });
 }
 
