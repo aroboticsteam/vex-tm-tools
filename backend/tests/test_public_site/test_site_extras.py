@@ -274,3 +274,28 @@ async def test_recordings_need_settings_permissions(api):
     assert (await api.delete("/api/v1/match-recordings/x")).status_code == 403
     api.state["principal"] = CurrentPrincipal(subject="nobody", permissions=set())
     assert (await api.get("/api/v1/match-recordings")).status_code == 403
+
+
+async def test_captured_recordings_appear_on_the_public_site(api):
+    from backend.models.capture import CaptureRecording
+
+    await seed(api)
+    q1, q2 = "1:0:QUAL:1:1", "1:0:QUAL:1:2"
+    async with api.factory() as session:
+        r1 = CaptureRecording(match_key=q1, match_type="QUAL", match_number="1", status="READY", object_key="QUAL/1/match.mp4")
+        r2 = CaptureRecording(match_key=q2, match_type="QUAL", match_number="2", status="RECORDING")
+        session.add_all([r1, r2])
+        await session.commit()
+        r1_id = r1.id
+    try:
+        by_label = {m["label"]: m for m in (await api.get("/api/v1/public/site/event")).json()["matches"]}
+        assert by_label["Q1"]["recording_url"] == f"/api/v1/public/recordings/{r1_id}/video"
+        assert by_label["Q2"]["recording_url"] is None  # still recording: nothing to watch
+        # An imported link wins over the captured one.
+        await api.put("/api/v1/match-recordings", json={"division": "1", "label": "Q1", "url": "https://youtu.be/abc"})
+        by_label = {m["label"]: m for m in (await api.get("/api/v1/public/site/event")).json()["matches"]}
+        assert by_label["Q1"]["recording_url"] == "https://youtu.be/abc"
+    finally:
+        async with api.factory() as session:
+            await session.execute(delete(CaptureRecording).where(CaptureRecording.match_key.in_([q1, q2])))
+            await session.commit()

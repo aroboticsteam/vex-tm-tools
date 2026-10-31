@@ -232,6 +232,34 @@ async def generate_presigned_url(s3_key: str, expires_in: int = 900) -> str:
         )
 
 
+async def generate_presigned_put_url(s3_key: str, expires_in: int = 3600, content_type: str | None = None) -> str:
+    """Pre-signed single-PUT upload URL for `s3_key`, signed against the public
+    endpoint like `generate_presigned_url` (the capture agent is outside the
+    server's network). When `content_type` is given the uploader must send the
+    same `Content-Type` header."""
+    config = await _resolved_config()
+    _require_s3_settings(config)
+    params: dict[str, str] = {"Bucket": config.bucket, "Key": s3_key}
+    if content_type:
+        params["ContentType"] = content_type
+    async with _client_ctx(config, config.public_endpoint_url or config.endpoint_url) as s3:
+        return await s3.generate_presigned_url("put_object", Params=params, ExpiresIn=expires_in)
+
+
+async def object_size(s3_key: str) -> int | None:
+    """Size in bytes of `s3_key`, or None if it does not exist."""
+    config = await _resolved_config()
+    _require_s3_settings(config)
+    async with _client_ctx(config, config.endpoint_url) as s3:
+        try:
+            head = await s3.head_object(Bucket=config.bucket, Key=s3_key)
+            return int(head.get("ContentLength", 0))
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code", "") in ("404", "NoSuchKey", "NotFound"):
+                return None
+            raise
+
+
 async def delete_object(s3_key: str) -> None:
     """Delete `s3_key` from the configured bucket. Idempotent — deleting a
     key that doesn't exist is not an error (matches S3 semantics)."""

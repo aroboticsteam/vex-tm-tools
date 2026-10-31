@@ -388,7 +388,9 @@ class VexTmIntegration(Integration):
             return
 
         payload = data
-        if event_type == "fieldMatchAssigned":
+        if event_type in ("fieldMatchAssigned", "matchStarted"):
+            # matchStarted is enriched too so the capture agent's recording
+            # can be tagged with the teams (issue #42).
             payload = await self._enrich_field_match_assigned(data)
         elif event_type == "matchStopped":
             self._schedule_post_match_refresh()

@@ -605,3 +605,48 @@ export interface StationMessage {
   acknowledged: boolean;
   created_at: string;
 }
+
+// ── Capture / analysis desk (issues #38, #41, #42, #45) ─────────────────
+
+export interface CaptureMoment {
+  id: string;
+  number: number;
+  length_s: number;
+  status: 'REQUESTED' | 'CUT' | 'READY' | 'ERROR' | string;
+  end_offset_ms: number | null;
+  ready_ms: number | null;
+  requested_at: string;
+  error: string | null;
+}
+
+export interface CaptureRecording {
+  id: string;
+  match_key: string;
+  match_type: string;
+  match_number: string;
+  teams: string[];
+  alliances: Record<string, unknown> | null;
+  status: 'RECORDING' | 'STOPPED' | 'READY' | 'ERROR' | string;
+  started_at: string;
+  stopped_at: string | null;
+  duration_s: number | null;
+  size_bytes: number | null;
+  error: string | null;
+  moments: CaptureMoment[];
+}
+
+export interface CaptureStatus {
+  connected: boolean;
+  agent: Record<string, unknown> | null;
+  recording: CaptureRecording | null;
+}
+
+export interface ReplayState {
+  playing: boolean;
+  paused?: boolean;
+  rate?: number;
+  label?: string;
+  loop?: boolean;
+}
+
+export type ReplayAction = 'pause' | 'resume' | 'rate' | 'seek' | 'stop' | 'restart';

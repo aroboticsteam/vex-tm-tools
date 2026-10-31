@@ -49,6 +49,7 @@ from backend.modules.timer.manager import TimerManager
 from backend.routers.audit import router as audit_router
 from backend.routers.auth import router as auth_router
 from backend.routers.button_pages import router as button_pages_router
+from backend.routers.capture import router as capture_router
 from backend.routers.comms import router as comms_router
 from backend.routers.automations import router as automations_router
 from backend.routers.debug import router as debug_router
@@ -260,6 +261,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await leader.stop()
     except Exception:
         logger.exception("Error stopping leader election during shutdown")
+    # A stopped election must not look live to later requests/tests in this process.
+    app.state.leader = None
     try:
         await ws_manager.stop()
     except Exception:
@@ -325,6 +328,7 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=http_status, content=payload.model_dump())
 
     app.include_router(teams_router)
+    app.include_router(capture_router)
     app.include_router(team_clips_router)
     app.include_router(rooms_router)
     app.include_router(public_site_router)

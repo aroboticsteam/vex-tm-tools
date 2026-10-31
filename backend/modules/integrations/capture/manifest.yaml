@@ -1,0 +1,6 @@
+domain: capture
+name: "Capture agent (match recording and instant replay)"
+version: "1.0.0"
+description: "Controls the local ffmpeg capture agent: record each match and mark replay moments."
+requires_oauth: false
+config_schema: {}

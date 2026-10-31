@@ -1,6 +1,6 @@
 # TMTools (QEComp) — Source of Truth
 
-**Last verified against the codebase:** 2026-10-30 (`main` @ `c832fb6`, Alembic head `b9c1d2e3f4a5`)
+**Last verified against the codebase:** 2026-10-30 (`main` @ `c832fb6` + `feat/capture-backend`, Alembic head `b9c1d2e3f4a5`)
 
 This is the single authoritative description of what is in this repository: architecture, decisions, data model, API surface, RBAC, frontend, deployment and tests. It replaces `tm_update_plan.md` (the original v3.0 rewrite plan). Where the old plan and the code disagreed, **the code wins** and this document records the code.
 
@@ -184,7 +184,7 @@ Defaults for the first four are seeded by the initial migration; `notifications`
 
 ## 6. Data model (Postgres)
 
-All tables are defined in `backend/models/` and created by Alembic (`alembic/versions/`). **27 tables.**
+All tables are defined in `backend/models/` and created by Alembic (`alembic/versions/`). **29 tables.**
 
 | Area | Table | Key columns |
 |---|---|---|
@@ -210,13 +210,15 @@ All tables are defined in `backend/models/` and created by Alembic (`alembic/ver
 | | `station_messages` | `station_slug`, `text`, `acknowledged` (replies from iPads) |
 | Buttons | `button_pages` | `name` UNIQUE, `position`, `columns` |
 | | `buttons` | `page_id`, `label`, `color`, `position`, `action_yaml`, `icon`, `confirm` |
+| Capture | `capture_recordings` | `id` UUID, `match_key` UNIQUE, `match_type`, `match_number`, `teams` TEXT[] (GIN), `alliances` JSONB, `status` (`RECORDING/STOPPED/READY/ERROR`), `object_key`, `started_at`, `stopped_at`, `duration_s`, `size_bytes`, `error`. Starting a match whose key already exists resets that row (drops the earlier take and its moments) |
+| | `capture_moments` | `recording_id` FK (cascade), `number` (UNIQUE per recording, mark order), `length_s`, `status` (`REQUESTED/CUT/READY/ERROR`), `end_offset_ms` (agent recording clock), `ready_ms` (mark → playable, measured by the agent), `object_key`, `error` |
 | Site | `match_recordings` | `match_key` PK, `url`, `title` |
 | Access | `role_permissions` | PK (`authentik_group`,`permission`) |
 | | `api_keys` | `name`, `key_hash` (SHA-256), `permissions` TEXT[], `created_by`, `last_used_at`, `revoked` |
 | System | `system_settings` | `key` PK, `value` JSONB, `updated_by` |
 | | `audit_log` | `user_id`, `action`, `resource_type`, `resource_id`, `changes` JSONB, `ip_address` INET; retained forever, no UI deletion |
 
-Migrations: single linear head `b9c1d2e3f4a5` (CI fails on multiple heads). Seed migrations: default role permissions, notifications settings, prompter index token, plus permission additions per feature (rooms, buttons, comms). The k8s `migrate` init container and compose `migrate` service run `alembic upgrade head`.
+Migrations: single linear head `c1d2e3f4a5b6` (CI fails on multiple heads). Seed migrations: default role permissions, notifications settings, prompter index token, plus permission additions per feature (rooms, buttons, comms). The k8s `migrate` init container and compose `migrate` service run `alembic upgrade head`.
 
 ## 7. Redis keyspace and event bus
 
@@ -231,6 +233,7 @@ Migrations: single linear head `b9c1d2e3f4a5` (CI fails on multiple heads). Seed
 | `qecomp:tm:<entity_id>:schedule` (pattern scanned by notifications) | string | configurable | cached division schedule |
 | `qecomp:timer:<entity_id>:state` | hash | none | `start_ts`, `duration_s`, `running` — timer ticks recompute from this, so a new leader resumes mid-countdown |
 | `qecomp:team:<number>:profile` | string | 24h | cached team profile |
+| `qecomp:capture:agent` | string (JSON) | 45s (agent heartbeat refreshes) | capture agent presence: `agent_id`, `version`, `state`, `detail`, `settings`, `last_seen`. Absent = agent not connected |
 | `qecomp:events` | pub/sub | — | **all** internal events |
 | `qecomp:config_change` | pub/sub | — | reload notifications |
 
@@ -248,13 +251,16 @@ Migrations: single linear head `b9c1d2e3f4a5` (CI fails on multiple heads). Seed
 | `type` | Source | Notable payload |
 |---|---|---|
 | `fieldMatchAssigned` | vex_tm (payload enriched from cached schedule) | `fieldID`, `matchNum`, `round`, `redTeams[]`, `blueTeams[]`, `divisionId` (+ raw `match` tuple) |
-| `fieldActivated`, `matchStarted`, `matchStopped`, `audienceDisplayChanged` | vex_tm (TM WS passthrough) | `fieldID`, `matchNum`, `round`, …; `audienceDisplayChanged` carries `display` (e.g. `IN_MATCH`, `RANKINGS`; the TM docs show no `fieldID` for it) |
+| `fieldActivated`, `matchStarted`, `matchStopped`, `audienceDisplayChanged` | vex_tm (TM WS passthrough; `matchStarted` is enriched like `fieldMatchAssigned` with `matchNum`, `round`, `redTeams`, `blueTeams` so recordings can be tagged) | `fieldID`, `matchNum`, `round`, …; `audienceDisplayChanged` carries `display` (e.g. `IN_MATCH`, `RANKINGS`; the TM docs show no `fieldID` for it) |
 | `timer_started`, `timer_milestone`, `timer_finished`, `timer_stopped` | TimerManager | `field_set_id`, `field_id`, `remaining`, `elapsed`, `duration_s` |
 | `team_profile_updated` | Scraper | `team_number` |
 | `match_prediction` | Predictor | `high_potential` (+ internal predicted scores — never forwarded to UIs) |
 | `config_change` | routers | `resource_type`, `entity_id`, `action` |
 | `integration_status` | Loader/integrations | `status` |
 | `overlay_show_team` | engine `spotlight` action / overlays router | team to spotlight |
+| `capture_command` | `capture` service / routes | payload is the command forwarded verbatim to the agent's `/ws/agent` socket (`start_recording`, `stop_recording`, `mark`); never sent to other sockets |
+| `replay_command` | `modules/capture/replay.py` | `entity_id` = replay player id; payload (`play`/`pause`/`resume`/`restart`/`rate`/`seek`/`stop`) forwarded verbatim to that player's `/ws/replay/{id}` sockets only |
+| `capture_recording`, `capture_moment`, `capture_status` | capture service / `/ws/agent` | recording/moment summaries (id, status, match key…) and agent connected state, for the analysis deck |
 | comms events (`message`, `screen`, `timer`, `notice`, …) | comms router, notifications delivery | entity `COMMS_ENTITY_ID`; consumed by `/ws/station`, `/ws/room` |
 
 `manual_trigger` is the synthetic event the engine builds for manual/test runs.
@@ -276,6 +282,7 @@ One folder per domain under `backend/modules/integrations/<domain>/` with `manif
 | `wled` | WLED LED strips (JSON API) | `host`, `port` | `set_power(on)`, `set_brightness`, `set_color`, `set_preset`, `set_effect(effect, speed?, intensity?)`, `flash(color?, count?, interval_ms?)` | `vfx:control` |
 | `ptz` | PTZ camera (VISCA over IP, UDP 52381) | `host`, `port`, `camera_address` (1–7) | `recall_preset`, `store_preset`, `move(direction, speed?)`, `stop`, `home`, `zoom(direction, speed?)` | `video:control` |
 | `artnet` | Art-Net (DMX over IP) for MagicQ virtual sliders via a Node 1 Universe | `ip` (or broadcast), `port` (6454), `universe` (0–32767), `refresh_hz` (4) | `set_channels(start, values)`, `set_slider(channel, level \| percent)`, `fade(channel, level \| percent, duration_ms)`, `blackout` | `vfx:control` |
+| `capture` | Capture agent control (no config; DEGRADED while no agent is connected) | none | `start_recording(match \| round, instance, match_num, red_teams, blue_teams)`, `stop_recording` (no-op when idle), `mark_moment(seconds)` | `capture:control` |
 
 `*` = `secret: true`, Fernet-encrypted at rest. Service calls fail closed (403) for a domain with no entry in `_DOMAIN_PERMISSIONS` (`routers/integrations.py`) — add one when adding a domain. BirdDog X1 compatibility for `ptz` is unverified; WLED/OSC/PTZ were added in issue #7.
 
@@ -296,6 +303,7 @@ PKCE flow runs in the browser (frontend `SpotifyAuthButton`, callback at `/integ
 
 - **ATEM:** `PyATEMMax` is synchronous — all calls via `asyncio.to_thread`; its receive loop runs in a thread started in `setup()` and joined in `teardown()`; cross-thread signalling uses `loop.call_soon_threadsafe`.
 - **ZerOS:** `python-osc`; fire-and-forget sends via `asyncio.to_thread`. Presets (name ↔ number) are managed in the UI (`/api/v1/zeros/presets`) and offered as a dropdown in the builder; the Integrations page also has a fire-preset button.
+- **Capture (#42/#45):** thin front for `modules/capture/service.py`; unlike the other integrations it imports that module because it needs the recording tables. A watcher compares the agent presence key every 5 s and reports CONNECTED/DEGRADED. Services fail with `IntegrationError` (503 over REST) when no agent is connected. Intended automation: `matchStarted` → `capture.start_recording` with `match: "{{ trigger.payload.match }}"`, `red_teams`/`blue_teams` from the enriched payload; `matchStopped` → `capture.stop_recording`.
 - **Art-Net (#39):** non-blocking asyncio UDP (no thread). Holds one 512-channel universe buffer; services mutate it and a keep-alive loop re-sends it `refresh_hz` times a second (nodes drop output when frames stop). Fades run as per-channel tasks at ~30 Hz; a manual set on a channel cancels its fade; `blackout` zeroes everything. Sequence runs 1–255. Tests: `tests/test_integrations/test_artnet_unit.py` (real UDP listener).
 - **OBS:** `obs-websocket-py` 1.x (async-native). Scene list is fetched on `setup()`, cached in Redis, refreshable from the UI. Disconnects set `DEGRADED` and trigger reconnect.
 
@@ -330,6 +338,24 @@ action:
     data:
       playlist_uri: "{{ states(trigger.entity_id, 'match_playlist') }}"
 ```
+
+Pre-results graphic (#40) — TM event types are passed through unchanged, so no code is needed; create this in the Automations page:
+
+```yaml
+alias: "Results graphic"
+trigger:
+  - platform: state
+    event_type: audienceDisplayChanged
+condition:
+  - "{{ trigger.payload.display == 'RESULTS' }}"
+action:
+  - service: obs.switch_scene
+    target: obs.main
+    data:
+      scene_name: "Results graphic"
+```
+
+A second automation on the next display change switches back. The exact `display` value (`RESULTS`) has **not** been confirmed against a live TM (the TM API docs only show `IN_MATCH`/`RANKINGS`); check the live event in Debug → Live Event Bus and adjust the condition if needed.
 
 ### 9.1 Entity IDs and tags
 
@@ -488,6 +514,18 @@ Generated reference: [`docs/API.md`](docs/API.md) and the live `/docs` (Swagger)
 | POST | `/api/v1/public/push/subscribe`, `/status`, `/unsubscribe` | **public** |
 | POST | `/api/v1/notifications/staff/subscribe`, `/unsubscribe` | `notifications:receive` |
 | POST | `/api/v1/notifications/broadcast` | `notifications:broadcast` |
+| GET | `/api/v1/capture/status` | `analysis:view` — agent presence + the recording in progress |
+| GET | `/api/v1/capture/recordings[/{id}]` | `analysis:view` — filters `team`, `match_type`, `match_key`, `limit`; includes moments |
+| POST | `/api/v1/capture/recordings/start`, `/recordings/stop` | `capture:control` — same as the service calls (503 if no agent) |
+| POST | `/api/v1/capture/moments` | `capture:control` — mark the last `length_s` (0–30) seconds; 409 if nothing is recording |
+| DELETE | `/api/v1/capture/recordings?match_type=` | `capture:control` — wipe recordings and their stored files (between events) |
+| GET | `/api/v1/capture/replay/{id}` | `analysis:view` — current replay player state (`playing`, `paused`, `rate`, `url`, `label`) |
+| POST | `/api/v1/capture/replay/{id}/play` | `capture:control` — "send to program": body `{kind: recording\|moment, id, rate (default 0.5), loop}`; stores state in `qecomp:replay:{id}:state` and publishes `replay_command`; 409 if the video is not uploaded. The deck then calls `obs.switch_scene` separately |
+| POST | `/api/v1/capture/replay/{id}/control` | `capture:control` — `pause`/`resume`/`restart`/`rate`/`seek`/`stop`; 409 when nothing is playing, 422 on bad values |
+| GET | `/api/v1/capture/{recordings\|moments}/{id}/url` | `analysis:view` — presigned GET URL (409 until uploaded) |
+| POST | `/api/v1/capture/uploads` | `capture:upload` (agent key) — presigned single-PUT URL for `match` or `moment`, signed against the public endpoint |
+| POST | `/api/v1/capture/uploads/{id}/complete` | `capture:upload` — verifies the object exists, marks READY, publishes the event |
+| GET | `/api/v1/public/recordings/{id}/video` | **public** — 302 to a presigned GET of a READY match video (linked from the public site's match list; an imported link wins) |
 | POST | `/api/v1/notifications/team-alert` | `notifications:broadcast` — alert specific teams (`pit_admin`/`lost_and_found`/`custom`); modal notice in each room containing them + push to subscribers following them (ignores category opt-outs); returns `{rooms, pushed, unreached_teams}`; audited as `team_alert` |
 | POST | `/api/v1/notifications/test`; GET `/api/v1/notifications/stats` | `notifications:manage` |
 
@@ -516,14 +554,16 @@ Generated reference: [`docs/API.md`](docs/API.md) and the live `/docs` (Swagger)
 | `/ws/events` | session cookie (any authenticated user; page-level permission gating is in the SPA) | live event stream for Dashboard, Match Control, Audit, debug |
 | `/ws/prompter/{entity_id}` | HMAC token (`?token=`) | `timer_state`, `cues`, upcoming match + ⚡ flag; accepts `start_countdown` only from principals with `prompter:control` |
 | `/ws/overlay/{entity_id}` | none | `upcoming_match`, `show_team`, transitions |
+| `/ws/replay/{id}` | none (like the overlay; id must match `[A-Za-z0-9._-]{1,100}`) | replay player page: server sends the stored state on connect, then `replay_command` payloads; page sends only keepalives |
+| `/ws/agent` | scoped `qec_` key holding `capture:upload` (`Authorization: Bearer` or `?key=`) | capture agent link: server sends `start_recording`/`stop_recording`/`mark`; agent sends `hello`/`status` (heartbeat, refreshes presence), `recording_stopped`, `moment_cut`, `error` |
 | `/ws/room/{slug}` | none (slug) | alerts/notices for the room display |
 | `/ws/station/{slug}` | slug (+ access key / PIN token if secured) | comms: `message`, `screen`, `timer`, `notice` |
 
-`ConnectionManager` (in `routers/ws.py`): `connect`, `disconnect`, `broadcast(entity_id, msg)`, `broadcast_all(msg)`; one Redis pub/sub subscriber per node fans `qecomp:events` out to local sockets.
+`ConnectionManager` (in `routers/ws.py`): `connect`, `disconnect`, `broadcast(entity_id, msg)`, `broadcast_all(msg)`; `connect(..., receive_all=False)` keeps a socket out of the `broadcast_all` fan-out (the agent socket, so it only gets commands addressed to it); one Redis pub/sub subscriber per node fans `qecomp:events` out to local sockets.
 
 ## 13. Standalone and public pages
 
-Vanilla HTML+JS served by FastAPI (no build step, native WebSocket with backoff): `overlay.html`, `prompter.html` (entity id/token injected via JSON-encoded substitution to avoid script injection), `room.html`, `station.html`, `notify.html`, `site.html`, `leaderboard.html`, `sw.js` (service worker for push).
+Vanilla HTML+JS served by FastAPI (no build step, native WebSocket with backoff): `overlay.html`, `replay.html` (OBS replay player), `prompter.html` (entity id/token injected via JSON-encoded substitution to avoid script injection), `room.html`, `station.html`, `notify.html`, `site.html`, `leaderboard.html`, `sw.js` (service worker for push).
 
 | URL | Auth |
 |---|---|
@@ -560,6 +600,7 @@ These are registered before the SPA catch-all.
 | `notifications:receive` / `:broadcast` / `:manage` | staff push / broadcast / test + stats |
 | `buttons:read` / `:press` / `:manage` | view / press / modify button pages |
 | `comms:read` / `:send` / `:manage` | view / send+ack / configure stations, presets, agenda |
+| `capture:control` / `capture:upload` / `analysis:view` | start-stop-mark recordings, wipe, call `capture.*` services / the agent's upload key (+ `/ws/agent`) / view recordings, moments and agent status (analysis deck) |
 | `settings:read` / `:edit` | view settings, audit, recordings / edit settings, API keys, roles, site images, debug views, automation run history |
 
 ### 14.2 Seeded Authentik group mappings (editable in Users & Roles)
@@ -567,11 +608,11 @@ These are registered before the SPA catch-all.
 | Group | Permissions (cumulative across migrations) |
 |---|---|
 | `qecomp-admin` | `*` |
-| `qecomp-operator` | `integrations:read`, `automations:read`, `automations:trigger`, `timers:read`, `teams:read`, `teams:edit`, `video:upload`, `vfx:control`, `video:control`, `audio:control`, `tm:control`, `overlays:read`, `prompter:edit`, `rooms:read`, `rooms:manage`, `notifications:receive`, `notifications:broadcast`, `buttons:read`, `buttons:press`, `buttons:manage`, `comms:read`, `comms:send`, `comms:manage` |
+| `qecomp-operator` | `integrations:read`, `automations:read`, `automations:trigger`, `timers:read`, `teams:read`, `teams:edit`, `video:upload`, `vfx:control`, `video:control`, `audio:control`, `tm:control`, `overlays:read`, `prompter:edit`, `rooms:read`, `rooms:manage`, `notifications:receive`, `notifications:broadcast`, `buttons:read`, `buttons:press`, `buttons:manage`, `comms:read`, `comms:send`, `comms:manage`, `capture:control`, `analysis:view` |
 | `qecomp-lighting` | `vfx:control`, `integrations:read` |
-| `qecomp-video` | `video:control`, `video:upload`, `overlays:read`, `overlays:edit`, `buttons:read`, `buttons:press` |
+| `qecomp-video` | `video:control`, `video:upload`, `overlays:read`, `overlays:edit`, `buttons:read`, `buttons:press`, `capture:control`, `analysis:view` |
 | `qecomp-emcee` | `prompter:view`, `prompter:control` |
-| `qecomp-staff` | `rooms:read`, `teams:read`, `notifications:receive`, `comms:read` |
+| `qecomp-staff` | `rooms:read`, `teams:read`, `notifications:receive`, `comms:read`, `analysis:view` |
 | `qecomp-viewer` | `teams:read`, `integrations:read`, `automations:read`, `rooms:read`, `buttons:read`, `comms:read` |
 
 Authentik setup: [`docs/AUTHENTIK_SETUP.md`](docs/AUTHENTIK_SETUP.md) (OAuth2/OIDC provider; scopes `openid profile email` plus a group-exposing scope; redirect URI `<app_url>/auth/callback`; set `OIDC_GROUPS_CLAIM` to match). Local real-OIDC testing uses Authelia via `local-testing/`.
@@ -596,6 +637,7 @@ Authentik setup: [`docs/AUTHENTIK_SETUP.md`](docs/AUTHENTIK_SETUP.md) (OAuth2/OI
 | `/timers` | Timers | instance CRUD, duration, copyable prompter link, regenerate token, cues/runsheet |
 | `/overlays` | Overlays | CRUD, copyable URL, next-match preview, spotlight |
 | `/teams`, `/teams/:number` | Teams, TeamDetail | search/filter; stats, notes, pit location, inspection checklist (status select, 360/team-video marks; list page shows progress + incomplete-only filter), logo, video upload + WebGL keying preview + re-process, clips, bio |
+| `/analysis` | Analysis | Analysis desk (#38/#41), gated on `analysis:view` (navbar entry too); controls need `capture:control`. Match navigation (arrows, go-to-number) over `GET /capture/recordings`, follows the live recording. **Match tab:** agent/recording state, Mark last 3/5/10 s (buttons + number-key bindings, stored per browser), moment list with upload state, per-moment and full-match "Send to program" (`/capture/replay/{id}/play`, then `obs.switch_scene` on the chosen OBS instance), pause/resume/restart, speed 0.25/0.5/0.75/1×, Back to program (stop + switch scene), Flash LED (`wled.flash`). **Stats tab:** each team's cached stats for the selected match; never shows predictions. Setup (replay id, OBS/WLED instance, scenes, keys) lives in `localStorage` (`lib/analysis.ts`). Polls every 2–3 s (`api/capture.ts`) |
 | `/record` | Recorder | in-browser clip recorder |
 | `/rooms` | Rooms | rooms, team allocation, QR/links, broadcast |
 | `/comms` | Comms | stations, presets, send, screens, timers, agenda, inbox |
@@ -681,7 +723,7 @@ cd frontend && npm install && npm run dev       # http://localhost:5173
 
 Or `docker compose up -d` for everything (migrations and bucket creation automated). On bare MinIO you must create `S3_BUCKET` yourself. Log in at `/admin_login` as `admin_local` with `ADMIN_LOCAL_PASSWORD`; use `local-testing/` for a real OIDC (Authelia behind Traefik) login. `.claude/launch.json` defines the `frontend` dev server and a `qecomp-docker` preview URL.
 
-`tools/`: `add_user.py` (legacy), `e2e_seed.py` (seeds data for Playwright), `generate_vapid_keys.py` (Web Push keys), `get_field_sets.py` (list TM field sets), `get_spotify_devices.py`, `migrate_remove_legacy.py`.
+`tools/`: `capture_agent/` (the ffmpeg capture agent, #45: `agent.py`, `requirements.txt`, `README.md`; runs on the AV laptop, talks only to the server via `/ws/agent` + presigned uploads, local-first recording to Matroska → `+faststart` MP4, clip cut ~1.5 s after a mark, persisted upload queue with separate clip/match workers and backoff, flags `--reencode/--no-reencode` and `--video-bitrate`; tested by `backend/tests/test_capture/test_agent_tool.py` against a `lavfi` source), `add_user.py` (legacy), `e2e_seed.py` (seeds data for Playwright), `generate_vapid_keys.py` (Web Push keys), `get_field_sets.py` (list TM field sets), `get_spotify_devices.py`, `migrate_remove_legacy.py`.
 
 Contributions go through pull requests, not direct commits to `main`.
 
@@ -709,10 +751,10 @@ Not implemented yet. Decisions recorded here are agreed; implementation details 
 
 | Issue | Planned work | Decisions so far |
 |---|---|---|
-| #40 | Pre-results graphics | **No new code**: one automation triggered by the `audienceDisplayChanged` event with `display == RESULTS`, calling `obs.switch_scene` (optionally `atem.switch_input`); needs an example documented and the `RESULTS` value confirmed on a live TM |
-| #45 | **Local ffmpeg capture agent** (on the AV laptop, outside the server deployment) | Main capture method for recording and replay: reads the webcam feed the ATEM provides to the laptop, encodes H.264 by default (1 s keyframes; `reencode` on/off and `video_bitrate` are agent settings, off = stream copy, clips always re-encoded), records locally first, uploads to the S3-compatible store with presigned PUT URLs (path-style, public endpoint), cuts clips on request. Connects outward over WebSocket (`/ws/agent`) with a scoped `qec_` key; controlled via a new `capture` integration (`start_recording`/`stop_recording`/`mark_moment`). Layout `{matchType}/{matchNumber}/match.mp4` + `segments/moment-N.mp4`; cleared between events. Sizing for 245 IQ matches: ~41 GB at 15 Mbps, ~190 GB as-is at ~70 Mbps. Priorities: live recording is never interrupted, replay clip cut/upload is next and jumps ahead of match-file uploads (which are paused/throttled meanwhile); target clip ready within ~10 s of the mark. Not involved in playback; may run on a different machine from OBS. Open: packaging, permission names |
+| #40 | Pre-results graphics | **No new code**: one automation triggered by the `audienceDisplayChanged` event with `display == RESULTS`, calling `obs.switch_scene` (optionally `atem.switch_input`); example documented in §9; the `RESULTS` value still needs confirming on a live TM |
+| #45 | **Local ffmpeg capture agent** (on the AV laptop, outside the server deployment) | **Implemented:** server side (`modules/capture/`, `routers/capture.py`, `/ws/agent`, `capture` integration, upload API; see §8, §11, §12) and the agent (`tools/capture_agent/`, see §20). Main capture method: reads the webcam feed the ATEM provides to the laptop, encodes H.264 by default (1 s keyframes; `reencode` on/off and `video_bitrate` are agent settings, off = stream copy, clips always re-encoded), records locally first, uploads with presigned PUT URLs, cuts clips on request. Layout `{matchType}/{matchNumber}/match.mp4` + `segments/moment-N.mp4`; cleared between events. Sizing for 245 IQ matches: ~41 GB at 15 Mbps, ~190 GB as-is at ~70 Mbps. Priorities: live recording is never interrupted, replay clip cut/upload is next and jumps ahead of match-file uploads; target clip ready within ~10 s of the mark. Not involved in playback; may run on a different machine from OBS. Open: packaging |
 | #46 | Deployment move | k3s to a portable Docker Compose stack (Mac, Raspberry Pi or another laptop); Garage replaces MinIO (single node, first-run layout/bucket/key init); Mumble becomes a Compose service; multi-arch (amd64 + arm64) images; re-check single-instance leader election. Replay chain does not block on it |
-| #42 | Match recording + per-team tagging | Recordings come from the #45 agent (not OBS); tagged with the match key and the teams; shown per team on the public site / team profiles. Replaces manual URL import as the source of `match_recordings` |
+| #42 | Match recording + per-team tagging | **Server side implemented** (recordings tagged with match key and teams, per-team listing on `GET /capture/recordings?team=`, READY videos linked from the public site's match list). Needs the #45 agent to produce footage; team profile surfacing is in the analysis desk match list only (a per-team list on the profile page is pending) |
 | #38 | Instant replay | Finals only; marks key moments from the analysis deck (last 3s / 5s / 10s buttons, keyboard-mappable; exact timestamp stamped on the agent's recording clock) and cuts clips from the match recording, uploaded to `{matchType}/{matchNumber}/segments/moment-N`; LED-flash button; moments saved to team profiles; blank slate each match. Depends on #45 and #42 |
 | #41 | Analysis/host desk | Finals only; stats screen (2 teams IQ / 4 teams VRC per page, arrows or match-number entry) plus a match screen (live program feed and mark buttons during the match; after the match, moment list and full video, send to program = the server tells a replay player page (an OBS browser source served by the web server, streaming from the object store via presigned GET URLs) to play it, and the deck switches OBS to that scene via `obs.switch_scene`; a video must be uploaded before it can be played; pause, speed 0.5× default / 0.25 / 0.75 / 1×). Never shows predicted scores. Depends on #38, #45, #42 |
 | #29 | Validate VEX Events API against the live service | Open; also refresh `backend/tests/mock_tm_server.py` |
@@ -726,6 +768,10 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 - **Rewrite delivered** in waves (core → loader/integrations → engine/timers → routers/WS → frontend → scraper/predictor/media), then QA-pass fixes (leader failover, save-time validation, automation reporting, RobotEvents API migration, hot-reload, S3 settings, security audit fixes).
 - **TMTools rebrand** of user-visible text; AGPL-3.0 licence; separate `:backend`/`:frontend` images; Match Control absorbs Field Monitor.
 - **Feature additions (issue/PR):** notifications & rooms (#5), WLED/OSC/PTZ (#7), desk↔iPad comms (#8), public site (#10), button pages (#11), Robot 360 overlays + clip recorder (#1/#12), late warnings & agenda announcements (#22), robot-name opt-in & spotlight (#24), visual button builder (#25), comms secure links/PIN/timers/presence/agenda tools (#27), site extras — leaderboards, recordings, logos, bus tracker (#28), Playwright e2e suite (#30).
+- **2026-10-31:** Capture agent `tools/capture_agent/` (#45). `ConnectionManager.start()` now waits for its Redis subscription before returning (events published right after startup were lost); lifespan shutdown clears `app.state.leader`.
+- **2026-10-31:** Analysis desk SPA page (`/analysis`, `api/capture.ts`, `lib/analysis.ts`, navbar entry gated on `analysis:view`).
+- **2026-10-30:** Replay player backend (#41): `modules/capture/replay.py`, `static/replay.html` served at `GET /replay/{id}` (OBS browser source, transparent, `?label=1` caption), `/ws/replay/{id}`, `/api/v1/capture/replay/*`, `replay_command` event.
+- **2026-10-30:** Capture backend (#42/#45 server side): `capture_recordings`/`capture_moments` tables, `modules/capture/`, `/api/v1/capture/*`, `/ws/agent`, `capture` integration, `capture:control`/`capture:upload`/`analysis:view` permissions, `matchStarted` enrichment.
 - **2026-10-30:** Overlay rework (#13): new VRC/IQ/spotlight layouts in `overlay.html`.
 - **2026-10-30:** Pit admin / lost & found per-team alerts (#44): `POST /notifications/team-alert`, `delivery.alert_teams`, "Alert teams" card on Rooms and Team detail pages.
 - **2026-10-30:** `tm_update_plan.md` consolidated into this file (`source-of-truth.md`) and verified against the code. Same day: added planned work (§22.1) from the QE Comp 26 planning deck — overlay rework (#13), replay chain (#45/#42/#38/#41), Art-Net (#39), checklist (#43), pit alerts (#44) — and recorded that the scraper uses the VEX Events API (events.vex.com).

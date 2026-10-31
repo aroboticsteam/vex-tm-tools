@@ -362,6 +362,7 @@ _DOMAIN_PERMISSIONS = {
     "osc": "vfx:control",
     "wled": "vfx:control",
     "artnet": "vfx:control",
+    "capture": "capture:control",
     "ptz": "video:control",
     "atem": "video:control",
     "obs": "video:control",
