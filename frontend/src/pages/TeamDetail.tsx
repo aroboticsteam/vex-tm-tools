@@ -9,6 +9,7 @@ import { Button } from '../components/ui/Button';
 import { Input, Label, Textarea } from '../components/ui/Input';
 import { VideoUploader } from '../components/teams/VideoUploader';
 import { ChecklistCard } from '../components/teams/ChecklistCard';
+import { TeamRecordingsCard } from '../components/teams/TeamRecordingsCard';
 import { TeamAlertCard } from '../components/teams/TeamAlertCard';
 
 export function TeamDetailPage() {
@@ -138,6 +139,8 @@ export function TeamDetailPage() {
         </Card>
 
         <ChecklistCard teamNumber={number} />
+
+        <TeamRecordingsCard teamNumber={number} />
 
         <Card>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-vmd-textMuted">
