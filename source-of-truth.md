@@ -1,6 +1,6 @@
 # TMTools (QEComp) — Source of Truth
 
-**Last verified against the codebase:** 2026-10-31 (`main` + `feat/team-recordings`, Alembic head `c1d2e3f4a5b6`)
+**Last verified against the codebase:** 2026-11-10 (`feat/competition-setting` on `main`, Alembic head `d1e2f3a4b5c6`)
 
 This is the single authoritative description of what is in this repository: architecture, decisions, data model, API surface, RBAC, frontend, deployment and tests. It replaces `tm_update_plan.md` (the original v3.0 rewrite plan). Where the old plan and the code disagreed, **the code wins** and this document records the code.
 
@@ -173,6 +173,7 @@ TM server ──WS/REST──▶ vex_tm integration ──▶ qecomp:events (Red
 | Key | Contents |
 |---|---|
 | `s3` | endpoint, public endpoint, bucket, access key, secret key, region |
+| `competition` | `{program}`: `V5RC` (default) or `VIQRC`; the explicit VEX program of the event. `PUT /api/v1/settings` rejects other values with 422 (`CompetitionSettingValue`). Seeded by migration `d1e2f3a4b5c6`. Edited under "Competition" on the Settings page. Consumed by the scraper's VEX Events team lookup (§ scraper): of the teams returned for a number, the one whose `program.code` (else name) matches is used, registered (current-season) teams are preferred, and none matching falls back to the first result with a warning log. Layouts and leaderboards still auto-detect from TM match data (§8.1) |
 | `robot_events_api` | `{token}` for the **VEX Events API** (events.vex.com, the successor to the RobotEvents API; base `https://events.vex.com/api/v2`). The key keeps its old name |
 | `predictor` | `{high_potential_threshold_pct}` (default 15) |
 | `chroma_key_defaults` | `{colour:"#00B140", similarity:0.1, blend:0.05}` |
@@ -375,6 +376,7 @@ Every integration, timer and overlay instance has a system-wide unique `entity_i
 ### 10.2 Scraper and predictor
 
 - **Scraper** (`fieldMatchAssigned` → ensure profiles exist): pulls TM data (teams, QUAL rankings, skills, matches, event) using its own `httpx` client with the bearer token from `qecomp:tm:<entity_id>:token`, and VEX Events API data (events.vex.com; bio, robot name, previous seasons, world/UK skills) using the token from Settings. Writes `team_profiles` (`cached_stats` JSONB), caches 24h, emits `team_profile_updated`. Teams are also created from the schedule (Match Control).
+- **VEX Events team lookup** (`_fetch_from_robot_events`): `GET /teams?number[]=<n>` can return several teams, because a number is reused across programs (V5RC/VIQRC/TVRC/TVIQRC) and seasons (e.g. 10173Y = "HBS Killerbyte" V5RC unregistered and "HBS Nebula" VIQRC registered; 1095A = TVRC, TVIQRC and VIQRC teams). `_pick_team` chooses the record whose `program.code` matches the `competition` setting (`_team_in_program`), preferring `registered: true`; if none is in the program it falls back to the first result and logs a warning. The season lookup follows the chosen team's program id. Cached profiles (Redis `qecomp:team:*`, 24 h; `team_profiles` rows) built by the old first-result lookup must be deleted to be rebuilt.
 - **Predictor** (`fieldMatchAssigned` → `match_prediction`): local OPR least-squares (numpy) over scored matches; flags "high potential" if predicted combined alliance score is above the configured top-X% threshold; falls back to Robot Events data before in-event scores exist. Only the flag is user-visible.
 
 ### 10.3 Media pipeline
@@ -707,7 +709,7 @@ Everything runs in one asyncio loop; a blocking call stalls the whole server.
 
 - **Dockerfile** (multi-stage; CI builds each target): `frontend-builder` (node:20) → `frontend` (nginx-unprivileged serving the built SPA on 8080, `frontend/nginx.conf`) and `backend` (python:3.12-slim + `ffmpeg`, `libvpx-dev`; copies `backend/`, `alembic/`, `alembic.ini`, bakes the SPA into `backend/static/frontend/`; non-root uid/gid 1000; `uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1`).
 - **compose.yml** (local full stack): `cloudflared` (tunnel), `app`, `migrate` (alembic upgrade head), `bucket-init` (creates `S3_BUCKET` in MinIO), `postgres:16`, `redis:7`, `minio`. Host ports: app 8000, Postgres 5433, Redis 6380, MinIO 9000/9001. `app` has a fixed IP on the external `cf` network (10.65.1.20).
-- **docker-publish.yml:** native amd64 + arm64 builds per component, merged into multi-arch manifests on ghcr.io tagged `:backend`, `:frontend`, `<sha>-<component>`, `<version>-<component>`; cosign-signed; runs nightly, on `main`, on `v*.*.*` tags and (build only, no push) on PRs.
+- **docker-publish.yml:** native amd64 + arm64 builds per component, merged into multi-arch manifests on ghcr.io tagged `:backend`, `:frontend`, `<sha>-<component>`, `<version>-<component>`; cosign-signed; every tag is also mirrored to `registry.kmnet.uk/vex-tm-tools` (same tags) when repo secrets `KMNET_REGISTRY_USERNAME`/`KMNET_REGISTRY_PASSWORD` are set; runs nightly, on `main`, on `v*.*.*` tags and (build only, no push) on PRs.
 - **k8s/** (namespace `qecomp`): `deployment.yaml` (3 replicas, RollingUpdate, required anti-affinity, `migrate` init container, non-root, `/healthz` liveness, `/readyz` readiness, `POD_IP` from downward API, secrets from `qecomp-secrets`, env from `qecomp-config`; resources 250m/256Mi → 1 CPU/512Mi), `service.yaml` (ClusterIP 80→8000), `ingress.yaml` (Traefik `IngressRoute`, host `vex.kmnet.uk`, TLS secret `wildcard-vmd1-tls`), `configmap.yaml` (`OIDC_GROUPS_CLAIM`, `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT_URL=http://qecomp-minio:9000`, `APP_PORT`), `mumble.yaml` (voice server; password secret must be changed).
 - **Deployment is manual** `kubectl apply`; Postgres and Redis are external/managed (DSN and `REDIS_URL` come from secrets). Required secrets: `POSTGRES_DSN`, `REDIS_URL`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `ADMIN_LOCAL_PASSWORD`, `SECRET_KEY`, `ENCRYPTION_KEY`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`; optional `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY`.
 
@@ -780,3 +782,4 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 - **2026-10-30:** Team checklist (#43) implemented: `team_profiles.inspection_status`, `GET /api/v1/teams/checklist`, admin Teams/TeamDetail UI, public team page card.
 - **2026-10-31:** WebSocket scope fix: only the authenticated `/ws/events` socket receives the broadcast-all bus feed; public pages (room, station, overlay, prompter) get only their own bucket plus dedicated handlers. `ConnectionManager.connect` now defaults `receive_all=False`.
 - **2026-10-31:** Per-team "Match recordings" card on the admin team detail page (#42); `components/teams/TeamRecordingsCard.tsx`.
+- **2026-11-10:** `competition` system setting (`{program: V5RC|VIQRC}`, migration `d1e2f3a4b5c6`, validated in `PUT /settings`, Settings page selector, `Settings.test.tsx`); the scraper's `_fetch_from_robot_events` picks the team in the configured program (`_get_competition_program`, `_team_in_program`, `_pick_team`: prefers `registered`, falls back to the first result with a warning); docker-publish workflow mirrors images to `registry.kmnet.uk`.

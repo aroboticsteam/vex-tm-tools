@@ -10,6 +10,7 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException
+from pydantic import ValidationError
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +26,7 @@ from backend.schemas.settings import (
     ApiKeyCreate,
     ApiKeyCreateResponse,
     ApiKeyRead,
+    CompetitionSettingValue,
     RolePermissionRead,
     SystemSettingRead,
     SystemSettingUpdate,
@@ -76,6 +78,11 @@ async def update_settings(
     `{"s3": {"value": {...}}, "predictor": {"value": {...}}}` (plan §11's
     S3/Robot Events/predictor/chroma-key/ntfy settings groups, Appendix
     A.8/§3.8)."""
+    if "competition" in body:
+        try:
+            CompetitionSettingValue.model_validate(body["competition"].value)
+        except ValidationError:
+            raise HTTPException(status_code=422, detail="competition.program must be 'V5RC' or 'VIQRC'")
     rows: list[SystemSetting] = []
     for key, update in body.items():
         row = await db.get(SystemSetting, key)

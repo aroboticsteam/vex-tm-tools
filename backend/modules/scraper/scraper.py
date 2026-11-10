@@ -489,6 +489,51 @@ class Scraper:
                 return None
             return (setting.value or {}).get("token") or None
 
+    async def _get_competition_program(self) -> str:
+        """The event's VEX program from the `competition` system setting
+        (`V5RC` default, or `VIQRC`)."""
+        async with self._session_factory() as session:
+            setting = await session.get(SystemSetting, "competition")
+        program = ((setting.value if setting is not None else None) or {}).get("program")
+        return program if program in ("V5RC", "VIQRC") else "V5RC"
+
+    @staticmethod
+    def _team_in_program(re_team: dict[str, Any], program: str) -> bool:
+        """True if a VEX Events team record belongs to `program`. Matches the
+        API's `program.code`, falling back to the program name; a record with
+        neither is accepted (nothing to contradict the setting)."""
+        info = re_team.get("program") or {}
+        code = str(info.get("code") or "").upper()
+        name = str(info.get("name") or "").upper()
+        if code:
+            return code == program
+        if not name:
+            return True
+        is_iq = "IQ" in name
+        return is_iq if program == "VIQRC" else not is_iq and ("V5" in name or "VRC" in name)
+
+    def _pick_team(
+        self, teams: list[dict[str, Any]], program: str, team_number: str
+    ) -> dict[str, Any] | None:
+        """Choose the VEX Events team record for a number that may exist in
+        several programs/seasons: the one in the configured `program`,
+        preferring `registered: true` (current season). If none is in the
+        program, fall back to the first result (the pre-setting behaviour)
+        and log it."""
+        if not teams:
+            return None
+        in_program = [t for t in teams if self._team_in_program(t, program)]
+        if in_program:
+            registered = [t for t in in_program if t.get("registered")]
+            return (registered or in_program)[0]
+        logger.warning(
+            "No VEX Events team %s in program %s (found: %s); falling back to the first result",
+            team_number,
+            program,
+            [(t.get("program") or {}).get("code") for t in teams],
+        )
+        return teams[0]
+
     async def _get_current_season_id(self, program_id: int, headers: dict[str, str]) -> int | None:
         """Resolves the active season id for a program, via
         `GET /seasons?program[]=<id>&active=true` — Redis-cached (see
@@ -537,9 +582,12 @@ class Scraper:
             logger.exception("Failed to fetch Robot Events team lookup for %s", team_number)
             return {}
 
-        if not teams:
+        # A number can exist in more than one program (e.g. 10173Y is both a
+        # V5RC and a VIQRC team): use the one in the configured program.
+        program = await self._get_competition_program()
+        re_team = self._pick_team(teams, program, team_number)
+        if re_team is None:
             return {}
-        re_team = teams[0]
         team_id = re_team.get("id")
 
         result: dict[str, Any] = {

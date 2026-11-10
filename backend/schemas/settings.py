@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -51,3 +51,11 @@ class SystemSettingRead(BaseModel):
 
 class SystemSettingUpdate(BaseModel):
     value: dict[str, Any]
+
+
+class CompetitionSettingValue(BaseModel):
+    """`system_settings['competition']`: which VEX program the event runs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    program: Literal["V5RC", "VIQRC"]

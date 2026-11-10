@@ -508,3 +508,95 @@ def test_merge_profile_maps_documented_team_fields():
     assert stats["team_name"] == "Exothermic Dusk" and stats["organisation"] == "Exothermic Robotics"
     assert stats["location"] == "Redmond, Washington, United States" and stats["country"] == "United States"
     assert stats["division_id"] == 2
+
+
+# ── competition program selection ────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "program_info,program,expected",
+    [
+        ({"id": 1, "code": "V5RC", "name": "VEX V5 Robotics Competition"}, "V5RC", True),
+        ({"id": 1, "code": "V5RC"}, "VIQRC", False),
+        ({"id": 41, "code": "VIQRC", "name": "VEX IQ Robotics Competition"}, "VIQRC", True),
+        ({"id": 41, "code": "VIQRC"}, "V5RC", False),
+        ({"id": 900, "name": "VRC"}, "V5RC", True),
+        ({"id": 900, "name": "VEX IQ Robotics Competition"}, "V5RC", False),
+        ({"id": 900, "name": "VEX IQ Robotics Competition"}, "VIQRC", True),
+        ({"id": 900, "name": "VRC"}, "VIQRC", False),
+        ({}, "VIQRC", True),
+    ],
+)
+def test_team_in_program(program_info, program, expected):
+    from backend.modules.scraper.scraper import Scraper
+
+    assert Scraper._team_in_program({"program": program_info}, program) is expected
+
+
+@pytest.mark.parametrize("program,expected_id", [("V5RC", 1), ("VIQRC", 2)])
+async def test_robot_events_lookup_uses_team_in_configured_program(scraper, mocker, program, expected_id):
+    """A number that exists in both programs resolves to the configured one."""
+    mocker.patch.object(scraper, "_get_robot_events_token", return_value="tok")
+    mocker.patch.object(scraper, "_get_competition_program", return_value=program)
+    mocker.patch.object(scraper, "_get_current_season_id", return_value=None)
+    teams = [
+        {"id": 1, "robot_name": "V5 bot", "program": {"id": 1, "code": "V5RC"}},
+        {"id": 2, "robot_name": "IQ bot", "program": {"id": 41, "code": "VIQRC"}},
+    ]
+
+    async def fake_get(url, headers=None, params=None):
+        return _FakeResponse({"data": teams})
+
+    mocker.patch.object(scraper._re_http, "get", side_effect=fake_get)
+    result = await scraper._fetch_from_robot_events("10173Y")
+    assert result["robot_name"] == ("V5 bot" if expected_id == 1 else "IQ bot")
+
+
+def _t(id, name, code, pid, registered):
+    return {"id": id, "name": name, "robot_name": f"{name} bot", "registered": registered,
+            "program": {"id": pid, "code": code}}
+
+
+_TEAMS_10173Y = [_t(73560, "HBS Killerbyte", "V5RC", 1, False), _t(197215, "HBS Nebula", "VIQRC", 41, True)]
+_TEAMS_1095A = [
+    _t(1, "Lebanon TSA", "TVRC", 4, True),
+    _t(2, "BB8's Brother", "TVIQRC", 43, False),
+    _t(3, "Robo Warriors", "VIQRC", 41, True),
+]
+
+
+async def _lookup(scraper, mocker, teams, program):
+    mocker.patch.object(scraper, "_get_robot_events_token", return_value="tok")
+    mocker.patch.object(scraper, "_get_competition_program", return_value=program)
+    mocker.patch.object(scraper, "_get_current_season_id", return_value=None)
+
+    async def fake_get(url, headers=None, params=None):
+        return _FakeResponse({"data": teams})
+
+    mocker.patch.object(scraper._re_http, "get", side_effect=fake_get)
+    return await scraper._fetch_from_robot_events("X")
+
+
+async def test_lookup_10173y_viqrc_picks_nebula_not_killerbyte(scraper, mocker):
+    assert (await _lookup(scraper, mocker, _TEAMS_10173Y, "VIQRC"))["robot_name"] == "HBS Nebula bot"
+
+
+async def test_lookup_10173y_v5rc_picks_killerbyte(scraper, mocker):
+    assert (await _lookup(scraper, mocker, _TEAMS_10173Y, "V5RC"))["robot_name"] == "HBS Killerbyte bot"
+
+
+async def test_lookup_1095a_viqrc_picks_robo_warriors(scraper, mocker):
+    assert (await _lookup(scraper, mocker, _TEAMS_1095A, "VIQRC"))["robot_name"] == "Robo Warriors bot"
+
+
+async def test_lookup_prefers_registered_within_program(scraper, mocker):
+    teams = [_t(1, "Old", "VIQRC", 41, False), _t(2, "Current", "VIQRC", 41, True)]
+    assert (await _lookup(scraper, mocker, teams, "VIQRC"))["robot_name"] == "Current bot"
+
+
+async def test_lookup_falls_back_to_first_result_and_logs(scraper, mocker, caplog):
+    teams = [_t(1, "Only", "V5RC", 1, True)]
+    with caplog.at_level("WARNING"):
+        result = await _lookup(scraper, mocker, teams, "VIQRC")
+    assert result["robot_name"] == "Only bot"
+    assert "falling back" in caplog.text
