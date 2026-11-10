@@ -508,3 +508,56 @@ def test_merge_profile_maps_documented_team_fields():
     assert stats["team_name"] == "Exothermic Dusk" and stats["organisation"] == "Exothermic Robotics"
     assert stats["location"] == "Redmond, Washington, United States" and stats["country"] == "United States"
     assert stats["division_id"] == 2
+
+
+# ── competition program selection ────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "program_info,program,expected",
+    [
+        ({"id": 1, "code": "V5RC", "name": "VEX V5 Robotics Competition"}, "V5RC", True),
+        ({"id": 1, "code": "V5RC"}, "VIQRC", False),
+        ({"id": 41, "code": "VIQRC", "name": "VEX IQ Robotics Competition"}, "VIQRC", True),
+        ({"id": 41, "code": "VIQRC"}, "V5RC", False),
+        ({"id": 900, "name": "VRC"}, "V5RC", True),
+        ({"id": 900, "name": "VEX IQ Robotics Competition"}, "V5RC", False),
+        ({"id": 900, "name": "VEX IQ Robotics Competition"}, "VIQRC", True),
+        ({"id": 900, "name": "VRC"}, "VIQRC", False),
+        ({}, "VIQRC", True),
+    ],
+)
+def test_team_in_program(program_info, program, expected):
+    from backend.modules.scraper.scraper import Scraper
+
+    assert Scraper._team_in_program({"program": program_info}, program) is expected
+
+
+@pytest.mark.parametrize("program,expected_id", [("V5RC", 1), ("VIQRC", 2)])
+async def test_robot_events_lookup_uses_team_in_configured_program(scraper, mocker, program, expected_id):
+    """A number that exists in both programs resolves to the configured one."""
+    mocker.patch.object(scraper, "_get_robot_events_token", return_value="tok")
+    mocker.patch.object(scraper, "_get_competition_program", return_value=program)
+    mocker.patch.object(scraper, "_get_current_season_id", return_value=None)
+    teams = [
+        {"id": 1, "robot_name": "V5 bot", "program": {"id": 1, "code": "V5RC"}},
+        {"id": 2, "robot_name": "IQ bot", "program": {"id": 41, "code": "VIQRC"}},
+    ]
+
+    async def fake_get(url, headers=None, params=None):
+        return _FakeResponse({"data": teams})
+
+    mocker.patch.object(scraper._re_http, "get", side_effect=fake_get)
+    result = await scraper._fetch_from_robot_events("10173Y")
+    assert result["robot_name"] == ("V5 bot" if expected_id == 1 else "IQ bot")
+
+
+async def test_robot_events_lookup_empty_when_number_only_in_other_program(scraper, mocker):
+    mocker.patch.object(scraper, "_get_robot_events_token", return_value="tok")
+    mocker.patch.object(scraper, "_get_competition_program", return_value="VIQRC")
+
+    async def fake_get(url, headers=None, params=None):
+        return _FakeResponse({"data": [{"id": 1, "program": {"id": 1, "code": "V5RC"}}]})
+
+    mocker.patch.object(scraper._re_http, "get", side_effect=fake_get)
+    assert await scraper._fetch_from_robot_events("1234A") == {}

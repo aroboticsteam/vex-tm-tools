@@ -94,6 +94,31 @@ async def test_update_settings_upserts_existing_key(client, db_factory):
                 await session.commit()
 
 
+async def test_competition_setting_accepts_only_known_programs(client, db_factory):
+    async with db_factory() as session:
+        before = await session.get(SystemSetting, "competition")
+        original = dict(before.value) if before is not None else None
+    try:
+        for program in ("VIQRC", "V5RC"):
+            resp = await client.put("/api/v1/settings", json={"competition": {"value": {"program": program}}})
+            assert resp.status_code == 200
+            assert next(r for r in resp.json() if r["key"] == "competition")["value"] == {"program": program}
+        for bad in ({"program": "VEXU"}, {}, {"program": "V5RC", "x": 1}):
+            resp = await client.put("/api/v1/settings", json={"competition": {"value": bad}})
+            assert resp.status_code == 422
+        listed = await client.get("/api/v1/settings")
+        assert next(r for r in listed.json() if r["key"] == "competition")["value"] == {"program": "V5RC"}
+    finally:
+        async with db_factory() as session:
+            row = await session.get(SystemSetting, "competition")
+            if original is None:
+                if row is not None:
+                    await session.delete(row)
+            elif row is not None:
+                row.value = original
+            await session.commit()
+
+
 # ── api_keys (plan Appendix B.7) ───────────────────────────────────────────
 
 

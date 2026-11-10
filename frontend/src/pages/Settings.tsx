@@ -6,7 +6,7 @@ import { useUiStore } from '../stores/ui';
 import { ALL_PERMISSIONS } from '../stores/auth';
 import { PageHeader, Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Input, Label } from '../components/ui/Input';
+import { Input, Label, Select } from '../components/ui/Input';
 import { MatchRecordingsCard } from '../components/site/MatchRecordingsCard';
 import { SiteConfigEditor } from '../components/site/SiteConfigEditor';
 import { siteProblems, tidySite, type SiteConfig } from '../lib/siteConfig';
@@ -26,6 +26,7 @@ export function SettingsPage() {
 
   const s3 = settingValue(settings, 's3');
   const robotEvents = settingValue(settings, 'robot_events_api');
+  const competition = settingValue(settings, 'competition');
   const predictor = settingValue(settings, 'predictor');
   const chromaKey = settingValue(settings, 'chroma_key_defaults');
   // The backend reads/seeds this under `notifications` (backend/core/ntfy.py,
@@ -42,6 +43,7 @@ export function SettingsPage() {
   const [s3AccessKey, setS3AccessKey] = useState('');
   const [s3SecretKey, setS3SecretKey] = useState('');
   const [s3Region, setS3Region] = useState('');
+  const [program, setProgram] = useState('V5RC');
   const [reToken, setReToken] = useState('');
   const [threshold, setThreshold] = useState(15);
   const [ckColour, setCkColour] = useState('#00B140');
@@ -71,6 +73,7 @@ export function SettingsPage() {
     setS3AccessKey(String(s3.access_key ?? ''));
     setS3SecretKey(String(s3.secret_key ?? ''));
     setS3Region(String(s3.region ?? ''));
+    setProgram(competition.program === 'VIQRC' ? 'VIQRC' : 'V5RC');
     setReToken(String(robotEvents.token ?? ''));
     setThreshold(Number(predictor.high_potential_threshold_pct ?? 15));
     setCkColour(String(chromaKey.colour ?? '#00B140'));
@@ -119,6 +122,7 @@ export function SettingsPage() {
             region: s3Region,
           },
         },
+        competition: { value: { program } },
         robot_events_api: { value: { token: reToken } },
         predictor: { value: { high_potential_threshold_pct: threshold } },
         chroma_key_defaults: { value: { colour: ckColour, similarity: ckSimilarity, blend: ckBlend } },
@@ -153,7 +157,7 @@ export function SettingsPage() {
 
   return (
     <div>
-      <PageHeader title="Settings" subtitle="S3 storage, Robot Events, predictor, chroma key defaults, API keys." />
+      <PageHeader title="Settings" subtitle="S3 storage, competition program, Robot Events, predictor, chroma key defaults, API keys." />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
@@ -196,7 +200,19 @@ export function SettingsPage() {
         </Card>
 
         <Card>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-vmd-textMuted">Robot Events API</h2>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-vmd-textMuted">Competition</h2>
+          <Label htmlFor="competition-program">VEX program</Label>
+          <Select
+            id="competition-program"
+            value={program}
+            onChange={(e) => setProgram(e.target.value)}
+            disabled={!canEdit}
+          >
+            <option value="V5RC">V5RC (VEX V5 Robotics Competition)</option>
+            <option value="VIQRC">VIQRC (VEX IQ Robotics Competition)</option>
+          </Select>
+
+          <h2 className="mb-3 mt-5 text-sm font-semibold uppercase tracking-wide text-vmd-textMuted">Robot Events API</h2>
           <Label>API Token</Label>
           <Input type="password" value={reToken} onChange={(e) => setReToken(e.target.value)} disabled={!canEdit} />
 

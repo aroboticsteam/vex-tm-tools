@@ -9,6 +9,10 @@ name: Docker
 #   ghcr.io/<repo>:backend   the API with the built SPA bundled in (Dockerfile `backend` target)
 #   ghcr.io/<repo>:frontend  just the built SPA behind nginx        (Dockerfile `frontend` target)
 #
+# Every tag is also mirrored to registry.kmnet.uk/vex-tm-tools (same tags) when
+# the KMNET_REGISTRY_USERNAME / KMNET_REGISTRY_PASSWORD repo secrets are set,
+# for hosts that cannot reach ghcr.io (e.g. behind a TLS-inspecting proxy).
+#
 # Each image is built for linux/amd64 and linux/arm64 natively (one job per
 # arch, on GitHub's own amd64/arm64 runners — no QEMU emulation) and merged
 # into a single multi-arch manifest, so `docker pull` on an arm64 host (e.g.
@@ -29,6 +33,9 @@ env:
   REGISTRY: ghcr.io
   # github.repository as <account>/<repo>
   IMAGE_NAME: ${{ github.repository }}
+  # Secondary registry the merged manifests are mirrored to (see header).
+  MIRROR_REGISTRY: registry.kmnet.uk
+  MIRROR_IMAGE_NAME: vex-tm-tools
 
 jobs:
   build:
@@ -158,6 +165,26 @@ jobs:
           TAG_ARGS=$(echo "$TAGS" | xargs -I {} echo -n "-t {} ")
           docker buildx imagetools create $TAG_ARGS \
             $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+
+      # Copy the finished multi-arch manifest (all tags) to the mirror
+      # registry. Skipped when its credentials are not configured.
+      - name: Mirror to ${{ env.MIRROR_REGISTRY }}
+        env:
+          MIRROR_USER: ${{ secrets.KMNET_REGISTRY_USERNAME }}
+          MIRROR_PASS: ${{ secrets.KMNET_REGISTRY_PASSWORD }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          if [ -z "$MIRROR_USER" ] || [ -z "$MIRROR_PASS" ]; then
+            echo "KMNET_REGISTRY_* secrets not set; skipping mirror"
+            exit 0
+          fi
+          echo "$MIRROR_PASS" | docker login "$MIRROR_REGISTRY" -u "$MIRROR_USER" --password-stdin
+          SRC="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          DST="${{ env.MIRROR_REGISTRY }}/${{ env.MIRROR_IMAGE_NAME }}"
+          for ref in $TAGS; do
+            tag="${ref##*:}"
+            docker buildx imagetools create -t "$DST:$tag" "$ref"
+          done
 
       - name: Inspect image
         run: |
