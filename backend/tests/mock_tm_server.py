@@ -40,6 +40,23 @@ def _expected_signature(api_key: str, uri_path_and_query: str, token: str, host:
     return hmac.new(api_key.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def _team(number: str, name: str, div_id: int) -> dict[str, Any]:
+    """A `/api/teams` row in the documented shape."""
+    return {
+        "number": number,
+        "name": name,
+        "shortName": "",
+        "school": f"{name} Robotics",
+        "sponsors": "",
+        "city": "Redmond",
+        "state": "Washington",
+        "country": "United States",
+        "ageGroup": "HIGH_SCHOOL",
+        "divId": div_id,
+        "checkedIn": False,
+    }
+
+
 def create_app(
     client_id: str = DEFAULT_CLIENT_ID,
     client_secret: str = DEFAULT_CLIENT_SECRET,
@@ -89,22 +106,37 @@ def create_app(
             raise HTTPException(status_code=401, detail="invalid_client")
         return {"access_token": token, "token_type": "bearer", "expires_in": 3600}
 
+    # Shapes follow docs/modules/VEX_API_DOCS.md exactly (two divisions so
+    # multi-division handling is exercised).
+    divisions_data = [{"name": "Science", "id": 1}, {"name": "Technology", "id": 2}]
+    teams_data = [
+        _team("1234A", "Team A", 1),
+        _team("4321C", "Team C", 1),
+        _team("5678B", "Team B", 2),
+        _team("8765D", "Team D", 2),
+    ]
+    div_matches = {1: ("1234A", "4321C"), 2: ("5678B", "8765D")}
+
     @app.get("/api/divisions")
     async def divisions(request: Request) -> dict[str, Any]:
         _verify_rest_signature(request)
-        return {"divisions": [{"id": 1, "name": "Division 1"}]}
+        return {"divisions": divisions_data}
 
     @app.get("/api/matches/{div_id}")
     async def matches(div_id: int, request: Request) -> dict[str, Any]:
         _verify_rest_signature(request)
+        red, blue = div_matches.get(div_id, ("", ""))
         return {
             "matches": [
                 {
-                    "matchNum": 1,
-                    "round": "QUAL",
-                    "redTeams": ["1234A"],
-                    "blueTeams": ["5678B"],
-                    "divisionId": div_id,
+                    "finalScore": [0, 0],
+                    "matchInfo": {
+                        "timeScheduled": 1688306400,
+                        "state": "UNPLAYED",
+                        "alliances": [{"teams": [{"number": red}]}, {"teams": [{"number": blue}]}],
+                        "matchTuple": {"session": 0, "division": div_id, "round": "QUAL", "instance": 1, "match": 1},
+                    },
+                    "winningAlliance": 0,
                 }
             ]
         }
@@ -112,22 +144,56 @@ def create_app(
     @app.get("/api/rankings/{div_id}/{round}")
     async def rankings(div_id: int, round: str, request: Request) -> dict[str, Any]:
         _verify_rest_signature(request)
-        return {"rankings": [{"team": "1234A", "rank": 1, "wins": 3, "losses": 0, "ties": 0}]}
+        rows = []
+        for rank, number in enumerate(div_matches.get(div_id, ()), start=1):
+            rows.append(
+                {
+                    "rank": rank,
+                    "tied": False,
+                    "alliance": {"name": "", "teams": [{"number": number}]},
+                    "wins": 3 if rank == 1 else 0,
+                    "losses": 0 if rank == 1 else 3,
+                    "ties": 0,
+                    "wp": 6,
+                    "ap": 10,
+                    "sp": 100,
+                    "avgPoints": 50.0,
+                    "totalPoints": 150,
+                    "highScore": 60,
+                    "numMatches": 3,
+                    "minNumMatches": True,
+                }
+            )
+        return {"rankings": rows}
 
     @app.get("/api/skills")
     async def skills(request: Request) -> dict[str, Any]:
         _verify_rest_signature(request)
-        return {"skills": [{"team": "1234A", "rank": 1, "score": 100}]}
+        return {
+            "skillsRankings": [
+                {
+                    "rank": 1,
+                    "tie": False,
+                    "number": "1234A",
+                    "totalScore": 100,
+                    "progHighScore": 40,
+                    "progAttempts": 2,
+                    "driverHighScore": 60,
+                    "driverAttempts": 2,
+                }
+            ]
+        }
 
     @app.get("/api/teams")
-    async def teams(request: Request) -> dict[str, Any]:
+    @app.get("/api/teams/{div_id}")
+    async def teams(request: Request, div_id: int | None = None) -> dict[str, Any]:
         _verify_rest_signature(request)
-        return {"teams": [{"number": "1234A", "name": "Team A"}, {"number": "5678B", "name": "Team B"}]}
+        return {"teams": [t for t in teams_data if div_id is None or t["divId"] == div_id]}
 
     @app.get("/api/event")
     async def event(request: Request) -> dict[str, Any]:
         _verify_rest_signature(request)
-        return {"name": "Mock Event", "sku": "RE-MOCK-24-1234"}
+        return {"event": {"name": "Mock Event", "code": "RE-MOCK-24-1234"}}
 
     @app.websocket("/api/fieldsets/{fieldset_id}")
     async def fieldset_ws(websocket: WebSocket, fieldset_id: int) -> None:
