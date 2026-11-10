@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import statistics
 import time
 from datetime import datetime, timezone
@@ -72,6 +73,22 @@ CURRENT_SEASON_CACHE_TTL = 60 * 60 * 24  # 24h
 # "data" response envelope, and Bearer-token auth are unchanged (verified
 # against https://events.vex.com/api/v2/swagger.yml) — only the host moved.
 ROBOT_EVENTS_BASE_URL = "https://events.vex.com/api/v2"
+# The API allows 100 requests per window (`x-ratelimit-limit: 100`). All
+# VEX Events calls go through one shared limiter spaced at this interval
+# (about 85 requests a minute) and retry 429/503 with backoff.
+VE_MIN_INTERVAL_SECONDS = 0.7
+VE_MAX_ATTEMPTS = 5
+VE_BACKOFF_BASE_SECONDS = 5.0
+VE_BACKOFF_MAX_SECONDS = 60.0
+# Team-number lookups are batched: up to this many numbers per `GET /teams`.
+VE_LOOKUP_BATCH = 25
+# A profile whose VEX Events data could not be fetched is cached only this
+# long (not 24 h) and flagged `cached_stats.re_incomplete`, and the schedule
+# backfill retries it (at most `VE_INCOMPLETE_MAX_RETRIES` times, at least
+# `VE_INCOMPLETE_RETRY_GAP_SECONDS` apart).
+RE_INCOMPLETE_CACHE_TTL = 300
+VE_INCOMPLETE_MAX_RETRIES = 3
+VE_INCOMPLETE_RETRY_GAP_SECONDS = 300
 
 
 def _team_cache_key(team_number: str) -> str:
@@ -143,6 +160,12 @@ class Scraper:
 
         # Reused per C.7 (single persistent client, created once).
         self._re_http = httpx.AsyncClient(base_url=ROBOT_EVENTS_BASE_URL, timeout=10.0)
+        # Shared VEX Events rate limiter state (see `_re_get`).
+        self._re_min_interval = VE_MIN_INTERVAL_SECONDS
+        self._re_lock = asyncio.Lock()
+        self._re_next_slot = 0.0
+        # team -> (retries used, earliest next retry on the monotonic clock)
+        self._re_retries: dict[str, tuple[int, float]] = {}
         # TM base_url varies per instance, so this client carries no base_url.
         self._tm_http = httpx.AsyncClient(timeout=10.0)
 
@@ -247,17 +270,51 @@ class Scraper:
     async def _backfill_teams(self, tm_entity_id: str, teams: list[str]) -> None:
         async with self._session_factory() as session:
             result = await session.execute(
-                select(TeamProfile.team_number).where(TeamProfile.team_number.in_(teams))
+                select(TeamProfile.team_number, TeamProfile.cached_stats).where(
+                    TeamProfile.team_number.in_(teams)
+                )
             )
-            existing = set(result.scalars().all())
+            rows = result.all()
+        existing: set[str] = set()
+        retry: list[str] = []
+        now = time.monotonic()
+        for number, stats in rows:
+            if (stats or {}).get("re_incomplete"):
+                used, not_before = self._re_retries.get(number, (0, 0.0))
+                if used < VE_INCOMPLETE_MAX_RETRIES and now >= not_before:
+                    retry.append(number)
+                    continue
+            existing.add(number)
         missing = [t for t in teams if t not in existing]
         if missing:
-            logger.info("Creating %d team profile(s) from schedule for %s", len(missing), tm_entity_id)
+            logger.info(
+                "Creating %d team profile(s) from schedule for %s (%d retrying incomplete VEX Events data)",
+                len(missing),
+                tm_entity_id,
+                len(retry),
+            )
+        for number in retry:
+            await self.invalidate_cache(number)
+        # One batched lookup for all the numbers instead of one call per team.
+        candidates = await self._prefetch_re_teams(missing) if missing else {}
         for team_number in missing:
             if self._shutdown.is_set():
                 return
             try:
-                await self.fetch_team(team_number, tm_entity_id)
+                if team_number in candidates:
+                    profile = await self.fetch_team(
+                        team_number, tm_entity_id, re_candidates=candidates[team_number]
+                    )
+                else:
+                    profile = await self.fetch_team(team_number, tm_entity_id)
+                if isinstance(profile, dict) and (profile.get("cached_stats") or {}).get("re_incomplete"):
+                    used = self._re_retries.get(team_number, (0, 0.0))[0]
+                    self._re_retries[team_number] = (
+                        used + 1,
+                        time.monotonic() + VE_INCOMPLETE_RETRY_GAP_SECONDS,
+                    )
+                else:
+                    self._re_retries.pop(team_number, None)
             except Exception:
                 logger.exception("Failed to create team profile for %s from schedule", team_number)
 
@@ -273,7 +330,12 @@ class Scraper:
     async def invalidate_cache(self, team_number: str) -> None:
         await self._redis.delete(_team_cache_key(team_number))
 
-    async def fetch_team(self, team_number: str, tm_entity_id: str) -> dict[str, Any]:
+    async def fetch_team(
+        self,
+        team_number: str,
+        tm_entity_id: str,
+        re_candidates: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         """Fetch team data from the TM instance + Robot Events, compute
         derived stats, upsert `team_profiles`, cache in Redis (24h TTL), and
         publish a `team_profile_updated` event. Returns the profile dict."""
@@ -286,12 +348,21 @@ class Scraper:
                 pass  # fall through and refetch on corrupt cache
 
         tm_data = await self._fetch_from_tm(team_number, tm_entity_id)
-        re_data = await self._fetch_from_robot_events(team_number)
+        re_data = await self._fetch_from_robot_events(team_number, re_candidates)
+        incomplete = bool(re_data.pop("re_incomplete", False))
 
         profile = self._merge_profile(team_number, tm_data, re_data)
+        if incomplete:
+            # VEX Events failed (e.g. rate limited): keep what we have, flag
+            # it, and cache briefly so the next backfill retries.
+            profile["cached_stats"]["re_incomplete"] = True
 
         await self._upsert_team_profile(profile)
-        await self._redis.set(cache_key, json.dumps(profile), ex=TEAM_PROFILE_CACHE_TTL)
+        await self._redis.set(
+            cache_key,
+            json.dumps(profile),
+            ex=RE_INCOMPLETE_CACHE_TTL if incomplete else TEAM_PROFILE_CACHE_TTL,
+        )
         await self._publish_team_profile_updated(team_number)
         return profile
 
@@ -549,7 +620,7 @@ class Scraper:
                 pass
 
         try:
-            resp = await self._re_http.get(
+            resp = await self._re_get(
                 "/seasons",
                 params={"program[]": program_id, "active": "true"},
                 headers=headers,
@@ -565,22 +636,115 @@ class Scraper:
             await self._redis.set(cache_key, str(season_id), ex=CURRENT_SEASON_CACHE_TTL)
         return season_id
 
-    async def _fetch_from_robot_events(self, team_number: str) -> dict[str, Any]:
+    async def _sleep(self, seconds: float) -> None:
+        await asyncio.sleep(seconds)
+
+    async def _re_wait_turn(self) -> None:
+        """Reserve the next slot on the shared VEX Events limiter and wait
+        for it (slots are `_re_min_interval` apart across all callers)."""
+        async with self._re_lock:
+            now = time.monotonic()
+            wait = self._re_next_slot - now
+            self._re_next_slot = max(now, self._re_next_slot) + self._re_min_interval
+        if wait > 0:
+            await self._sleep(wait)
+
+    async def _re_get(
+        self, path: str, *, params: dict[str, Any] | None = None, headers: dict[str, str] | None = None
+    ) -> Any:
+        """Rate-limited GET to the VEX Events API: waits for a limiter slot
+        and retries 429/503 with backoff (honouring `Retry-After`), pushing
+        the shared slot back so every concurrent caller pauses too. After
+        `VE_MAX_ATTEMPTS` the last response is returned for the caller to
+        `raise_for_status()`."""
+        resp = None
+        for attempt in range(VE_MAX_ATTEMPTS):
+            await self._re_wait_turn()
+            resp = await self._re_http.get(path, params=params, headers=headers)
+            if getattr(resp, "status_code", 200) not in (429, 503):
+                return resp
+            if attempt == VE_MAX_ATTEMPTS - 1:
+                break
+            retry_after = None
+            try:
+                retry_after = float((getattr(resp, "headers", None) or {}).get("retry-after"))
+            except (TypeError, ValueError):
+                pass
+            delay = retry_after if retry_after is not None else min(
+                VE_BACKOFF_MAX_SECONDS, VE_BACKOFF_BASE_SECONDS * (2**attempt)
+            )
+            delay += random.uniform(0, 1)
+            logger.warning(
+                "VEX Events %s for %s; backing off %.1fs (attempt %d/%d)",
+                getattr(resp, "status_code", "?"),
+                path,
+                delay,
+                attempt + 1,
+                VE_MAX_ATTEMPTS,
+            )
+            async with self._re_lock:
+                self._re_next_slot = max(self._re_next_slot, time.monotonic() + delay)
+        return resp
+
+    async def _prefetch_re_teams(self, numbers: list[str]) -> dict[str, list[dict[str, Any]]]:
+        """Batched `GET /teams?number[]=a&number[]=b...` for many team
+        numbers at once (instead of one call per team). Returns
+        number -> candidate records (possibly empty = no such team); numbers
+        in a chunk that failed are left out so the per-team lookup retries."""
+        token = await self._get_robot_events_token()
+        if not token or not numbers:
+            return {}
+        headers = {"Authorization": f"Bearer {token}"}
+        out: dict[str, list[dict[str, Any]]] = {}
+        for i in range(0, len(numbers), VE_LOOKUP_BATCH):
+            chunk = numbers[i : i + VE_LOOKUP_BATCH]
+            found: dict[str, list[dict[str, Any]]] = {n: [] for n in chunk}
+            page = 1
+            try:
+                while True:
+                    resp = await self._re_get(
+                        "/teams",
+                        params={"number[]": chunk, "per_page": 250, "page": page},
+                        headers=headers,
+                    )
+                    resp.raise_for_status()
+                    body = resp.json()
+                    for t in body.get("data", []):
+                        found.setdefault(str(t.get("number")), []).append(t)
+                    last_page = (body.get("meta") or {}).get("last_page") or 1
+                    if page >= last_page:
+                        break
+                    page += 1
+            except Exception:
+                logger.exception("Batched VEX Events team lookup failed for %d team(s)", len(chunk))
+                continue
+            out.update(found)
+        return out
+
+    async def _fetch_from_robot_events(
+        self, team_number: str, candidates: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
+        """VEX Events data for a team. `candidates` are the already-looked-up
+        records for this number (from `_prefetch_re_teams`); `None` means
+        look them up now. The result carries `re_incomplete: True` when a
+        VEX Events call failed (rate limit, outage) so the caller doesn't
+        cache the gap for 24 h."""
         token = await self._get_robot_events_token()
         if not token:
             logger.debug("No Robot Events API token configured; skipping RE fetch")
             return {}
 
         headers = {"Authorization": f"Bearer {token}"}
-        try:
-            resp = await self._re_http.get(
-                "/teams", params={"number[]": team_number}, headers=headers
-            )
-            resp.raise_for_status()
-            teams = resp.json().get("data", [])
-        except Exception:
-            logger.exception("Failed to fetch Robot Events team lookup for %s", team_number)
-            return {}
+        if candidates is None:
+            try:
+                resp = await self._re_get("/teams", params={"number[]": team_number}, headers=headers)
+                resp.raise_for_status()
+                teams = resp.json().get("data", [])
+            except Exception:
+                logger.exception("Failed to fetch Robot Events team lookup for %s", team_number)
+                return {"re_incomplete": True}
+        else:
+            teams = candidates
 
         # A number can exist in more than one program (e.g. 10173Y is both a
         # V5RC and a VIQRC team): use the one in the configured program.
@@ -622,6 +786,7 @@ class Scraper:
                 result["previous_rankings"] = []
                 result["awards"] = []
                 result["skills_rank"] = None
+                result["re_incomplete"] = True
                 return result
 
             season_params = {"season[]": season_id}
@@ -632,15 +797,16 @@ class Scraper:
             # keeps response sizes (and pagination) down against a strictly
             # rate-limited API.
             rankings_result, awards_result, skills_result = await asyncio.gather(
-                self._re_http.get(f"/teams/{team_id}/rankings", params=season_params, headers=headers),
-                self._re_http.get(f"/teams/{team_id}/awards", params=season_params, headers=headers),
-                self._re_http.get(f"/teams/{team_id}/skills", params=season_params, headers=headers),
+                self._re_get(f"/teams/{team_id}/rankings", params=season_params, headers=headers),
+                self._re_get(f"/teams/{team_id}/awards", params=season_params, headers=headers),
+                self._re_get(f"/teams/{team_id}/skills", params=season_params, headers=headers),
                 return_exceptions=True,
             )
 
             if isinstance(rankings_result, BaseException):
                 logger.exception("Failed to fetch RE rankings for team %s", team_id, exc_info=rankings_result)
                 result["previous_rankings"] = []
+                result["re_incomplete"] = True
             else:
                 try:
                     rankings_result.raise_for_status()
@@ -648,10 +814,12 @@ class Scraper:
                 except Exception:
                     logger.exception("Failed to fetch RE rankings for team %s", team_id)
                     result["previous_rankings"] = []
+                    result["re_incomplete"] = True
 
             if isinstance(awards_result, BaseException):
                 logger.exception("Failed to fetch RE awards for team %s", team_id, exc_info=awards_result)
                 result["awards"] = []
+                result["re_incomplete"] = True
             else:
                 try:
                     awards_result.raise_for_status()
@@ -659,9 +827,11 @@ class Scraper:
                 except Exception:
                     logger.exception("Failed to fetch RE awards for team %s", team_id)
                     result["awards"] = []
+                    result["re_incomplete"] = True
 
             if isinstance(skills_result, BaseException):
                 logger.exception("Failed to fetch RE skills for team %s", team_id, exc_info=skills_result)
+                result["re_incomplete"] = True
             else:
                 try:
                     skills_result.raise_for_status()
@@ -680,6 +850,7 @@ class Scraper:
                     result["skills_rank"] = min(ranks) if ranks else None
                 except Exception:
                     logger.exception("Failed to fetch RE skills for team %s", team_id)
+                    result["re_incomplete"] = True
 
         return result
 

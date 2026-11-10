@@ -59,6 +59,7 @@ async def session_factory(db_engine):
 @pytest.fixture
 async def scraper(real_redis, session_factory):
     s = Scraper(redis=real_redis, session_factory=session_factory)
+    s._re_min_interval = 0  # no real waiting in tests
     yield s
     await s._re_http.aclose()
     await s._tm_http.aclose()
@@ -600,6 +601,122 @@ async def test_lookup_falls_back_to_first_result_and_logs(scraper, mocker, caplo
         result = await _lookup(scraper, mocker, teams, "VIQRC")
     assert result["robot_name"] == "Only bot"
     assert "falling back" in caplog.text
+
+
+# ── VEX Events rate limiting, retry and batching ─────────────────────────
+
+
+class _Resp:
+    def __init__(self, data=None, status=200, headers=None):
+        self._data = data if data is not None else {}
+        self.status_code = status
+        self.headers = headers or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+    def json(self):
+        return self._data
+
+
+async def test_re_get_retries_429_then_succeeds(scraper, mocker):
+    sleeps = mocker.patch.object(scraper, "_sleep", return_value=None)
+    replies = [_Resp(status=429, headers={"retry-after": "3"}), _Resp({"data": [1]})]
+    get = mocker.patch.object(scraper._re_http, "get", side_effect=replies)
+    resp = await scraper._re_get("/teams", params={}, headers={})
+    assert resp.status_code == 200 and get.call_count == 2
+    assert scraper._re_next_slot > 0  # the shared slot was pushed back
+
+
+async def test_re_get_gives_up_after_max_attempts(scraper, mocker):
+    from backend.modules.scraper.scraper import VE_MAX_ATTEMPTS
+
+    mocker.patch.object(scraper, "_sleep", return_value=None)
+    get = mocker.patch.object(scraper._re_http, "get", return_value=_Resp(status=429))
+    resp = await scraper._re_get("/teams", params={}, headers={})
+    assert resp.status_code == 429 and get.call_count == VE_MAX_ATTEMPTS
+
+
+async def test_re_wait_turn_spaces_requests(scraper, mocker):
+    scraper._re_min_interval = 0.5
+    sleeps = mocker.patch.object(scraper, "_sleep", return_value=None)
+    await scraper._re_wait_turn()
+    await scraper._re_wait_turn()
+    assert sleeps.await_count == 1 and 0 < sleeps.await_args.args[0] <= 0.5
+
+
+async def test_lookup_flags_incomplete_when_rate_limited(scraper, mocker):
+    mocker.patch.object(scraper, "_get_robot_events_token", return_value="tok")
+    mocker.patch.object(scraper, "_sleep", return_value=None)
+    mocker.patch.object(scraper._re_http, "get", return_value=_Resp(status=429))
+    assert await scraper._fetch_from_robot_events("1234A") == {"re_incomplete": True}
+
+
+async def test_failed_subrequest_flags_incomplete(scraper, mocker):
+    mocker.patch.object(scraper, "_get_robot_events_token", return_value="tok")
+    mocker.patch.object(scraper, "_get_competition_program", return_value="VIQRC")
+    mocker.patch.object(scraper, "_get_current_season_id", return_value=7)
+    mocker.patch.object(scraper, "_sleep", return_value=None)
+
+    async def fake_get(url, headers=None, params=None):
+        if url.endswith("/awards"):
+            return _Resp(status=429)
+        return _Resp({"data": []})
+
+    mocker.patch.object(scraper._re_http, "get", side_effect=fake_get)
+    team = {"id": 5, "robot_name": "R", "registered": True, "program": {"id": 41, "code": "VIQRC"}}
+    result = await scraper._fetch_from_robot_events("1234A", candidates=[team])
+    assert result["re_incomplete"] is True and result["robot_name"] == "R"
+
+
+async def test_candidates_skip_the_per_team_lookup(scraper, mocker):
+    mocker.patch.object(scraper, "_get_robot_events_token", return_value="tok")
+    mocker.patch.object(scraper, "_get_competition_program", return_value="VIQRC")
+    mocker.patch.object(scraper, "_get_current_season_id", return_value=7)
+    urls: list[str] = []
+
+    async def fake_get(url, headers=None, params=None):
+        urls.append(url)
+        return _Resp({"data": []})
+
+    mocker.patch.object(scraper._re_http, "get", side_effect=fake_get)
+    team = {"id": 5, "robot_name": "R", "program": {"id": 41, "code": "VIQRC"}}
+    result = await scraper._fetch_from_robot_events("1234A", candidates=[team])
+    assert "/teams" not in urls and "re_incomplete" not in result
+    # an empty candidate list means "no such team": no calls at all
+    urls.clear()
+    assert await scraper._fetch_from_robot_events("9999Z", candidates=[]) == {}
+    assert urls == []
+
+
+async def test_prefetch_batches_numbers_and_follows_pages(scraper, mocker):
+    mocker.patch.object(scraper, "_get_robot_events_token", return_value="tok")
+    calls: list[dict] = []
+
+    async def fake_get(url, headers=None, params=None):
+        calls.append(params)
+        nums = params["number[]"]
+        if len(nums) == 25 and params["page"] == 1:
+            return _Resp({"data": [{"number": nums[0], "id": 1}], "meta": {"last_page": 2}})
+        if len(nums) == 25:
+            return _Resp({"data": [{"number": nums[1], "id": 2}], "meta": {"last_page": 2}})
+        return _Resp({"data": [{"number": nums[0], "id": 3}], "meta": {"last_page": 1}})
+
+    mocker.patch.object(scraper._re_http, "get", side_effect=fake_get)
+    numbers = [f"{i}A" for i in range(1, 31)]
+    out = await scraper._prefetch_re_teams(numbers)
+    assert len(calls) == 3  # 25 + 5 numbers, first chunk has 2 pages
+    assert set(out) == set(numbers)
+    assert [t["id"] for t in out["1A"]] == [1] and [t["id"] for t in out["2A"]] == [2]
+    assert out["3A"] == []  # looked up, no such team
+
+
+async def test_prefetch_failure_leaves_numbers_for_per_team_lookup(scraper, mocker):
+    mocker.patch.object(scraper, "_get_robot_events_token", return_value="tok")
+    mocker.patch.object(scraper, "_sleep", return_value=None)
+    mocker.patch.object(scraper._re_http, "get", return_value=_Resp(status=429))
+    assert await scraper._prefetch_re_teams(["1A", "2A"]) == {}
 
 
 async def test_fetch_from_tm_multi_division_uses_each_teams_own_division(scraper, mocker):
