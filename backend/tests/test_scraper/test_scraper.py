@@ -717,3 +717,32 @@ async def test_prefetch_failure_leaves_numbers_for_per_team_lookup(scraper, mock
     mocker.patch.object(scraper, "_sleep", return_value=None)
     mocker.patch.object(scraper._re_http, "get", return_value=_Resp(status=429))
     assert await scraper._prefetch_re_teams(["1A", "2A"]) == {}
+
+
+async def test_fetch_from_tm_multi_division_uses_each_teams_own_division(scraper, mocker):
+    """With several divisions, rankings come from the team's own `divId`
+    (documented /api/teams shape), and skills match on `number`."""
+    mocker.patch.object(scraper, "_get_tm_base_url_and_token", return_value=("http://tm", "tok", None))
+    calls: list[str] = []
+
+    async def fake_tm_get(base_url, token, api_key, path, envelope_key=None):
+        calls.append(path)
+        data = {
+            "/api/teams": [
+                {"number": "1234A", "name": "A", "school": "S", "divId": 1},
+                {"number": "5678B", "name": "B", "school": "S", "divId": 2},
+            ],
+            "/api/event": {"name": "E", "code": "RE-X"},
+            "/api/rankings/1/QUAL": [{"rank": 1, "alliance": {"teams": [{"number": "1234A"}]}}],
+            "/api/rankings/2/QUAL": [{"rank": 4, "alliance": {"teams": [{"number": "5678B"}]}}],
+            "/api/skills": [{"rank": 2, "number": "5678B", "totalScore": 50}],
+            "/api/matches/1": [],
+            "/api/matches/2": [],
+        }
+        return data.get(path, [])
+
+    mocker.patch.object(scraper, "_tm_get", side_effect=fake_tm_get)
+    result = await scraper._fetch_from_tm("5678B", "vex_tm.division_1")
+    assert result["division_id"] == 2
+    assert "/api/rankings/2/QUAL" in calls and "/api/rankings/1/QUAL" not in calls
+    assert result["skills"] == [{"rank": 2, "number": "5678B", "totalScore": 50}]

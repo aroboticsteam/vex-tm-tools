@@ -1,6 +1,6 @@
 # TMTools (QEComp) — Source of Truth
 
-**Last verified against the codebase:** 2026-11-10 (`main` + VEX Events rate-limit fix, Alembic head `d1e2f3a4b5c6`)
+**Last verified against the codebase:** 2026-11-10 (`main` + VEX Events rate-limit fix + #29 mock shapes, Alembic head `d1e2f3a4b5c6`)
 
 This is the single authoritative description of what is in this repository: architecture, decisions, data model, API surface, RBAC, frontend, deployment and tests. It replaces `tm_update_plan.md` (the original v3.0 rewrite plan). Where the old plan and the code disagreed, **the code wins** and this document records the code.
 
@@ -760,7 +760,7 @@ Not implemented yet. Decisions recorded here are agreed; implementation details 
 | #42 | Match recording + per-team tagging | **Implemented** (recordings tagged with match key and teams, per-team listing on `GET /capture/recordings?team=`, READY videos linked from the public site's match list). Needs the #45 agent to produce footage; also surfaced per team in the "Match recordings" card on the admin team detail page (needs `analysis:view`) |
 | #38 | Instant replay | Finals only; marks key moments from the analysis deck (last 3s / 5s / 10s buttons, keyboard-mappable; exact timestamp stamped on the agent's recording clock) and cuts clips from the match recording, uploaded to `{matchType}/{matchNumber}/segments/moment-N`; LED-flash button; moments saved to team profiles; blank slate each match. Depends on #45 and #42 |
 | #41 | Analysis/host desk | Finals only; stats screen (2 teams IQ / 4 teams VRC per page, arrows or match-number entry) plus a match screen (live program feed and mark buttons during the match; after the match, moment list and full video, send to program = the server tells a replay player page (an OBS browser source served by the web server, streaming from the object store via presigned GET URLs) to play it, and the deck switches OBS to that scene via `obs.switch_scene`; a video must be uploaded before it can be played; pause, speed 0.5× default / 0.25 / 0.75 / 1×). Never shows predicted scores. Depends on #38, #45, #42 |
-| #29 | Validate VEX Events API against the live service | Open; also refresh `backend/tests/mock_tm_server.py` |
+| #29 | Validate VEX Events API against the live service | Open (mostly done): `backend/tests/mock_tm_server.py` now serves the documented TM shapes (two divisions, `divId`/`school` team rows, `matchInfo` matches, `alliance.teams` rankings, `skillsRankings`); live VEX Events `previous_rankings`/`awards` shapes checked against `backend/static/site.html` rendering; multi-division scraper test added. Left: a full live-event run and the release of the checklist |
 | #23, #21, #26 | Real-device verification | Recorder 60fps, push on iOS/Chrome/Edge, iPads + Mumble |
 
 Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shearly light mapping (covered by MagicQ via #39), UWB location tracking, a self-hosted livestream, live polls/trivia, NDI.
@@ -785,3 +785,4 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 - **2026-10-31:** Per-team "Match recordings" card on the admin team detail page (#42); `components/teams/TeamRecordingsCard.tsx`.
 - **2026-11-10:** `competition` system setting (`{program: V5RC|VIQRC}`, migration `d1e2f3a4b5c6`, validated in `PUT /settings`, Settings page selector, `Settings.test.tsx`); the scraper's `_fetch_from_robot_events` picks the team in the configured program (`_get_competition_program`, `_team_in_program`, `_pick_team`: prefers `registered`, falls back to the first result with a warning); docker-publish workflow mirrors images to `registry.kmnet.uk`.
 - **2026-11-10:** VEX Events 429 handling: shared rate limiter with retry/backoff (`_re_get`), batched team-number lookup in the schedule backfill (`_prefetch_re_teams`), and `re_incomplete` profiles that are cached for 5 min and retried instead of caching the gap for 24 h; tests in `test_scraper.py`.
+- **2026-11-10:** Issue #29 follow-up: `mock_tm_server.py` rewritten to the documented TM API shapes (it used to return `skills` instead of `skillsRankings`, plain `team` ranking keys and flat matches), two divisions; added a multi-division `_fetch_from_tm` test.

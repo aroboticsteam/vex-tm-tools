@@ -147,4 +147,4 @@ async def test_call_service_set_audience_display_reaches_mock_server(mock_server
 
 async def test_rest_get_against_mock_server_uses_correct_signature(vex_tm_instance):
     data = await vex_tm_instance._get("/api/divisions")
-    assert data == {"divisions": [{"id": 1, "name": "Division 1"}]}
+    assert data == {"divisions": [{"name": "Science", "id": 1}, {"name": "Technology", "id": 2}]}
