@@ -1,6 +1,6 @@
 # TMTools (QEComp) — Source of Truth
 
-**Last verified against the codebase:** 2026-11-11 (`main` + VEX Events rate-limit fix + #29 mock shapes + team-site feedback pass, Alembic head `d1e2f3a4b5c6`)
+**Last verified against the codebase:** 2026-11-11 (`main` + VEX Events rate-limit fix + #29 mock shapes + team-site feedback pass + open team notifications / QR removal, Alembic head `d1e2f3a4b5c6`)
 
 This is the single authoritative description of what is in this repository: architecture, decisions, data model, API surface, RBAC, frontend, deployment and tests. It replaces `tm_update_plan.md` (the original v3.0 rewrite plan). Where the old plan and the code disagreed, **the code wins** and this document records the code.
 
@@ -45,7 +45,7 @@ A VEX competition-control system. It connects to one or more VEX Tournament Mana
 - an EMCEE **teleprompter** (server-synced timer, cues, match preview);
 - **OBS overlays** with Robot 360 videos and team spotlight;
 - **team profiles** (TM + VEX Events scraper, AI "high potential" flag, video/clip pipeline);
-- **rooms** with public displays, QR codes and **Web Push** team/staff notifications;
+- **rooms** with public displays and **Web Push** team/staff notifications;
 - **desk ↔ iPad comms** (stations, messages, screens, timers, agenda);
 - **button pages** (Stream-Deck-style action buttons);
 - a **public team-facing website** (`/site`) with leaderboards and match recordings;
@@ -162,7 +162,6 @@ TM server ──WS/REST──▶ vex_tm integration ──▶ qecomp:events (Red
 | `POD_IP` | none | k8s downward API; falls back to local IP detection |
 | `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY` | empty | Web Push off while either is unset; room displays still work |
 | `VAPID_SUBJECT` | `mailto:admin@example.com` | VAPID `sub` |
-| `PUBLIC_BASE_URL` | empty | base for room QR codes; falls back to request base URL |
 | `LOG_LEVEL` | `INFO` | |
 | `CLOUDFLARE_TUNNEL_TOKEN` | — | used only by `compose.yml`'s `cloudflared` service; never commit a real value |
 
@@ -396,7 +395,7 @@ Every integration, timer and overlay instance has a system-wide unique `entity_i
 
 ### 10.5 Rooms and notifications (`modules/notifications/`)
 
-- **Rooms** group teams; each has a public display `/room/<slug>` (optional livestream embed and team list, live alerts; no QR code on the page itself — the QR image is still served at `/room/<slug>/qr.svg` and shown in the admin Rooms page) and a QR-linked `/notify?room=<slug>` page where phones pick teams (from that room) for alerts.
+- **Rooms** group teams; each has a public display `/room/<slug>` (optional livestream embed and team list, live alerts) used for team allocation, broadcasts and per-team alerts. **There is no QR code / room-scan / token mechanism any more**: the public `/notify` page lists every team (from `GET /api/v1/public/site/teams`) and any visitor can follow any team(s) with `POST /api/v1/public/push/subscribe` (`endpoint`, `keys`, `teams[]`, optional `categories[]`; team numbers validated by format only, rate-limited per IP, no room/login). New team subscriptions have `room_slug = NULL` (column kept for legacy rows; schema/migrations unchanged). Room-scoped broadcasts push to subscribers following a team in the chosen rooms (plus legacy subscriptions made from them); push click target is `/site` (legacy: their room page). `segno` and `PUBLIC_BASE_URL` were removed.
 - A **leader-only** service reads cached TM schedules and sends: arrival alerts (x matches **and**/or y minutes away), late warnings (`late_minutes`), score alerts (skipping excluded rounds, e.g. finals), and agenda announcements (`announce_lead_minutes`/`agenda_lead_minutes`), de-duplicated via `notification_log`.
 - **Delivery:** Web Push (VAPID, `pywebpush`) to phones and staff; room displays via WS. Per-subscriber categories; failing subscriptions are pruned via `failure_count`.
 - **Broadcasts:** `notifications:broadcast` can message chosen rooms and/or phones. **Staff alerts:** anyone with `notifications:receive` (bell in the navbar, `StaffPushToggle`) gets operator alerts (integration degraded, failover, etc.) and broadcasts.
@@ -580,7 +579,7 @@ Vanilla HTML+JS served by FastAPI (no build step, native WebSocket with backoff)
 | `/overlay/{entity_id}` | none |
 | `/prompter` | `?token=<prompter_index_token>` |
 | `/prompter/{entity_id}` | `?token=<HMAC>` |
-| `/room/{slug}`, `/room/{slug}/qr.svg`, `/notify`, `/notify.webmanifest`, `/sw.js` | none |
+| `/room/{slug}`, `/notify`, `/notify.webmanifest`, `/sw.js` | none |
 | `/station/{slug}` | slug (+ key/PIN) |
 | `/site`, `/site/leaderboard` | none |
 | `/admin_login` | local admin form (username fixed to `admin_local`) |
@@ -649,7 +648,7 @@ Authentik setup: [`docs/AUTHENTIK_SETUP.md`](docs/AUTHENTIK_SETUP.md) (OAuth2/OI
 | `/teams`, `/teams/:number` | Teams, TeamDetail | search/filter; stats, notes, pit location, match recordings card (`TeamRecordingsCard`, `GET /capture/recordings?team=`), inspection checklist (status select, 360/team-video marks; list page shows progress + incomplete-only filter), logo, video upload + WebGL keying preview + re-process, clips, bio |
 | `/analysis` | Analysis | Analysis desk (#38/#41), gated on `analysis:view` (navbar entry too); controls need `capture:control`. Match navigation (arrows, go-to-number) over `GET /capture/recordings`, follows the live recording. **Match tab:** agent/recording state, Mark last 3/5/10 s (buttons + number-key bindings, stored per browser), moment list with upload state, per-moment and full-match "Send to program" (`/capture/replay/{id}/play`, then `obs.switch_scene` on the chosen OBS instance), pause/resume/restart, speed 0.25/0.5/0.75/1×, Back to program (stop + switch scene), Flash LED (`wled.flash`). **Stats tab:** each team's cached stats for the selected match; never shows predictions. Setup (replay id, OBS/WLED instance, scenes, keys) lives in `localStorage` (`lib/analysis.ts`). Polls every 2–3 s (`api/capture.ts`) |
 | `/record` | Recorder | in-browser clip recorder |
-| `/rooms` | Rooms | rooms, team allocation, QR/links, broadcast |
+| `/rooms` | Rooms | rooms, team allocation, broadcast, team alerts |
 | `/comms` | Comms | stations, presets, send, screens, timers, agenda, inbox |
 | `/buttons` | ButtonPages | visual action builder, drag-and-drop, icons, confirm, press |
 | `/audit` | AuditLog | filters (user, action, resource, date), live append via WS |
@@ -794,3 +793,4 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 - **2026-11-10:** VEX Events 429 handling: shared rate limiter with retry/backoff (`_re_get`), batched team-number lookup in the schedule backfill (`_prefetch_re_teams`), and `re_incomplete` profiles that are cached for 5 min and retried instead of caching the gap for 24 h; tests in `test_scraper.py`.
 - **2026-11-10:** Issue #29 follow-up: `mock_tm_server.py` rewritten to the documented TM API shapes (it used to return `skills` instead of `skillsRankings`, plain `team` ranking keys and flat matches), two divisions; added a multi-division `_fetch_from_tm` test.
 - **2026-11-11:** Team-site feedback pass: IQ shows one Teams column / single score and no W-L-T; unplayed matches have `score: null`; rankings drop 0-match teams (`played`, `tie` added; numeric division sort; team page uses TM's own avg/high); public checklist card removed; team videos shown with download buttons (`downloads`, presigned attachment URLs); season history redesigned (card per event); homepage is a full-screen hero (`hero_image_key`/`hero_image_url`, Settings "Homepage image" control) plus top-50 qualification/skills; the QR panel removed from `room.html`; admin navbar labels always visible (`index.css`). The bus tracker (coach ETA board) was **removed** (see §10.8).
+- **2026-11-11:** Removed the QR mechanism for team notifications (`GET /room/{slug}/qr.svg`, admin Rooms QR modal, `segno`, `PUBLIC_BASE_URL`, `?room=` gating on `/notify` and the manifest). `/notify` is now an open page where anyone picks any team(s); `POST /public/push/subscribe` no longer takes/validates a room (legacy `room` key ignored; team numbers format-validated); `SubscriptionStatus` has no `room`. Tests updated (`test_routers.py`, `test_schemas.py`). No migration.
