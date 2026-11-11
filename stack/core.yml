@@ -55,6 +55,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - redis_data:/data
     healthcheck:
@@ -131,8 +133,10 @@ services:
     volumes:
       - secrets:/secrets:ro
       - certs:/certs:ro
-    ports:
-      - "3000:8000"
+    # Not published: Traefik (with its security headers, TLS and Authelia) is the only way in.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/healthz', timeout=3)"]
       interval: 10s

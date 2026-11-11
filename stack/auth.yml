@@ -60,6 +60,9 @@ services:
 
   authelia:
     image: authelia/authelia:4.39
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
     depends_on:
       authelia-init:
         condition: service_completed_successfully

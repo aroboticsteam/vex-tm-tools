@@ -53,7 +53,7 @@ Base name (placeholder): `tmtools.<domain>`. The wildcard does not cover its own
 | `mumble.tmtools.<domain>` | LAN only | Mumble (voice, not HTTP) |
 | `competitors.<domain>` | public (Cloudflare tunnel, backup: ingress) | `/site` and the public API/static paths only |
 
-Ports on the server after the change: `80`/`443` (Traefik), `64738` tcp+udp (Mumble), and `3000` (app direct, optional, can be dropped). `9091` and `3901` go away.
+Ports on the server after the change: `80`/`443` (Traefik), and `64738` tcp+udp (Mumble). The app's direct `3000` port was removed (hardening). `9091` and `3901` go away.
 
 ## 5. Workstreams
 

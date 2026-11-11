@@ -25,6 +25,10 @@ services:
       authelia:
         condition: service_started
     command: ["--configFile=/etc/traefik/traefik.yml"]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
     ports:
       - "80:80"
       - "443:443"
@@ -77,14 +81,20 @@ configs:
               readTimeout: 0
               writeTimeout: 0
               idleTimeout: 0s
+          http:
+            middlewares: [secure-headers@file]
         websecure:
           address: ":443"
           transport: *transport
+          http:
+            middlewares: [secure-headers@file]
         # Reachable only inside the compose network (not published): the
         # Cloudflare tunnel's origin. Serves the public competitors page only.
         public:
           address: ":8081"
           transport: *transport
+          http:
+            middlewares: [secure-headers@file]
 
       providers:
         file:
@@ -100,6 +110,10 @@ configs:
   cfg_dynamic:
     content: |
       tls:
+        options:
+          default:
+            minVersion: VersionTLS12
+            sniStrict: false
         certificates:
           - certFile: /certs/cert.pem
             keyFile: /certs/key.pem
@@ -111,6 +125,19 @@ configs:
 
       http:
         middlewares:
+          # Browser hardening on every response. No HSTS (the cert is self-signed, and
+          # HSTS would make browsers refuse the exception) and no CSP (the pages use
+          # inline scripts). The camera/microphone stay allowed for the clip recorder.
+          secure-headers:
+            headers:
+              contentTypeNosniff: true
+              frameDeny: false
+              customFrameOptionsValue: SAMEORIGIN
+              referrerPolicy: strict-origin-when-cross-origin
+              permissionsPolicy: "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+              customResponseHeaders:
+                Server: ""
+                X-Powered-By: ""
           authelia:
             forwardAuth:
               address: http://authelia:9091/api/authz/forward-auth
