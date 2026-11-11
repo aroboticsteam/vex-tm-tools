@@ -11,7 +11,13 @@ from backend.models.comms import ROLES
 
 SLUG_PATTERN = r"^[a-z0-9][a-z0-9-]{0,49}$"
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
-SCREENS = ("messages", "countdown", "agenda_day", "agenda_finals", "timer")
+SCREENS = ("messages", "countdown", "agenda_day", "agenda_finals", "timer", "display")
+
+#: What an emcee may put on the audience screens (VEX TM `setAudienceDisplay` values; same list as Match Control).
+AUDIENCE_DISPLAYS = (
+    "BLANK", "LOGO", "SCHEDULE", "RANKINGS", "RANKINGS_SKILLS", "MATCH_PREVIEW", "IN_MATCH", "MATCH_RESULTS",
+    "SEASON", "SKILLS", "SKILLS_RANKINGS", "ALLIANCE_SELECTION", "ELIMINATION_BRACKET",
+)
 SCOPES = ("day", "finals")
 
 
@@ -173,6 +179,17 @@ class ScreenRequest(BaseModel):
 
 class SendResult(BaseModel):
     stations: list[str]
+
+
+class AudienceDisplayRequest(BaseModel):
+    display: str
+
+    @field_validator("display")
+    @classmethod
+    def _known(cls, value: str) -> str:
+        if value not in AUDIENCE_DISPLAYS:
+            raise ValueError(f"display must be one of {', '.join(AUDIENCE_DISPLAYS)}")
+        return value
 
 
 class InboundMessage(BaseModel):

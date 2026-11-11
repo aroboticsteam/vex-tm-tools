@@ -29,6 +29,11 @@
   .compose input { flex: 1; font-size: 1.1rem; padding: .8rem 1rem; border-radius: 10px; border: 1px solid #2c3347; background: #161a23; color: #eceff4; }
   .compose button, .ack { background: #3b6fe0; color: #fff; border: 0; border-radius: 10px; padding: .8rem 1.4rem; font-size: 1.1rem; }
   .ack { margin-top: .8rem; background: #444d66; }
+  .dgrid { display: grid; gap: .8rem; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); margin-top: 1rem; }
+  .dgrid button { background: #1d2230; border: 1px solid #2c3347; color: #eceff4; border-radius: 14px; padding: 1.4rem .6rem; font-size: 1.25rem; font-weight: 600; }
+  .dgrid button.active { background: #3b6fe0; border-color: #3b6fe0; }
+  .dgrid button:disabled { opacity: .6; }
+  .dstatus { margin-top: 1rem; color: #aeb6c8; font-size: 1.1rem; min-height: 1.5rem; }
   .count { text-align: center; }
   .count .label { font-size: 1.6rem; color: #aeb6c8; }
   .count .clock { font-size: 7rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
@@ -62,7 +67,7 @@
 <script>
 (function () {
   var SLUG = "__STATION_SLUG__";
-  var LABELS = { messages: 'Messages', countdown: 'Next match', timer: 'Timer', agenda_day: 'Day agenda', agenda_finals: 'Finals agenda' };
+  var LABELS = { messages: 'Messages', countdown: 'Next match', display: 'Screens', timer: 'Timer', agenda_day: 'Day agenda', agenda_finals: 'Finals agenda' };
   var state = { station: null, screen: 'messages', messages: [], flashing: null, next: null, agenda: {}, timer: null, offset: 0, blocked: false };
   // Secured stations: the link carries ?k=<key>; a PIN is exchanged for a token kept for this tab/session.
   var KEY = new URLSearchParams(location.search).get('k') || '';
@@ -176,6 +181,29 @@
     viewEl.appendChild(form);
   }
 
+  var DISPLAYS = [
+    ['MATCH_RESULTS', 'Results'], ['RANKINGS', 'Rankings'], ['SKILLS_RANKINGS', 'Skills rankings'], ['SCHEDULE', 'Schedule'],
+    ['MATCH_PREVIEW', 'Match preview'], ['IN_MATCH', 'In match'], ['ALLIANCE_SELECTION', 'Alliance selection'],
+    ['ELIMINATION_BRACKET', 'Elimination bracket'], ['SKILLS', 'Skills'], ['SEASON', 'Season'], ['LOGO', 'Logo'], ['BLANK', 'Blank']
+  ];
+  function renderDisplay() {
+    viewEl.appendChild(el('div', 'label', 'Audience screens'));
+    var status = el('div', 'dstatus', state.displayStatus || '');
+    var grid = el('div', 'dgrid');
+    DISPLAYS.forEach(function (d) {
+      var b = el('button', state.display === d[0] ? 'active' : '', d[1]);
+      b.addEventListener('click', function () {
+        b.disabled = true; status.textContent = 'Switching…';
+        api('/audience-display', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ display: d[0] }) })
+          .then(function () { state.display = d[0]; state.displayStatus = 'Showing: ' + d[1]; })
+          .catch(function (e) { state.displayStatus = e.status === 503 ? 'Tournament Manager is not connected' : e.status === 429 ? 'Slow down a moment' : 'Could not change the screen'; })
+          .then(function () { if (state.screen === 'display') render(); });
+      });
+      grid.appendChild(b);
+    });
+    viewEl.appendChild(grid); viewEl.appendChild(status);
+  }
+
   function teamCard(t, cls) {
     var c = el('div', 'team ' + cls);
     c.appendChild(el('div', 'num', (t.qual_rank != null ? '#' + t.qual_rank + '  ' : '') + t.team_number));
@@ -285,6 +313,7 @@
     viewEl.replaceChildren();
     if (state.screen === 'messages') renderMessages();
     else if (state.screen === 'countdown') renderCountdown();
+    else if (state.screen === 'display') renderDisplay();
     else if (state.screen === 'timer') renderTimer();
     else if (state.screen === 'agenda_day') renderAgenda('day');
     else if (state.screen === 'agenda_finals') renderAgenda('finals');

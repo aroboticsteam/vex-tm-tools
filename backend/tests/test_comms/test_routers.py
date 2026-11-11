@@ -246,6 +246,29 @@ async def test_next_match_for_emcee_only(ctx, session_factory):
     assert data["blue"][0]["team_number"] == "CM2B" and data["blue"][0]["team_name"] is None
 
 
+async def test_emcee_audience_display(ctx, monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from backend.routers import comms
+
+    await make_station(ctx, "emcee-1", "emcee")
+    await make_station(ctx, "floor-1", "floor_manager")
+    assert "display" in (await ctx.get("/api/v1/public/stations/emcee-1")).json()["screens"]
+    assert "display" not in (await ctx.get("/api/v1/public/stations/floor-1")).json()["screens"]
+    url = "/api/v1/public/stations/emcee-1/audience-display"
+    assert (await ctx.post(url, json={"display": "MATCH_RESULTS"})).status_code == 503  # no TM integration running
+    inst = MagicMock(entity_id="vex_tm.test")
+    inst.call_service = AsyncMock()
+    monkeypatch.setattr(comms.loader, "get_all_instances", lambda: [inst, MagicMock(entity_id="atem.main")])
+    assert (await ctx.post(url, json={"display": "MATCH_RESULTS"})).status_code == 204
+    inst.call_service.assert_awaited_once_with("set_audience_display", {"display": "MATCH_RESULTS"})
+    assert (await ctx.post(url, json={"display": "NOPE"})).status_code == 422  # not on the whitelist
+    assert (await ctx.post("/api/v1/public/stations/floor-1/audience-display", json={"display": "BLANK"})).status_code == 403
+    assert (await ctx.post("/api/v1/public/stations/nobody/audience-display", json={"display": "BLANK"})).status_code == 404
+    inst.call_service.side_effect = RuntimeError("TM down")
+    assert (await ctx.post(url, json={"display": "RANKINGS"})).status_code == 502
+
+
 async def test_permissions(ctx):
     from backend.core.dependencies import CurrentPrincipal
 

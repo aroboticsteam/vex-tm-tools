@@ -538,7 +538,7 @@ export interface TeamClips {
 // ── Comms: stations, presets, agenda, inbox (issue #8) ─────────────────
 
 export type StationRole = 'emcee' | 'floor_manager' | 'camera';
-export type CommsScreen = 'messages' | 'countdown' | 'timer' | 'agenda_day' | 'agenda_finals';
+export type CommsScreen = 'messages' | 'countdown' | 'display' | 'timer' | 'agenda_day' | 'agenda_finals';
 
 export interface Station {
   slug: string;
