@@ -124,6 +124,20 @@ configs:
               replacement: "https://$${1}/site"
               permanent: false
         routers:
+          # Region protection. Traffic that came through Cloudflare (the tunnel on
+          # `public`, the homelab ingress on `web`) carries the visitor's country in
+          # CF-IPCountry; anything outside GEO_ALLOW_COUNTRIES (default GB) is
+          # refused before it reaches any service. LAN and tailnet clients never go
+          # through Cloudflare, have no such header, and are unaffected. Fails open
+          # when the header is missing (Cloudflare's own WAF and the homelab ingress
+          # are the other layers). Set GEO_ALLOW_COUNTRIES to e.g. "GB|IE" to widen it.
+          geo-block:
+            rule: >-
+              HeaderRegexp(`CF-IPCountry`, `^.+$`) &&
+              !HeaderRegexp(`CF-IPCountry`, `^(${GEO_ALLOW_COUNTRIES:-GB})$`)
+            entryPoints: [web, public]
+            service: noop@internal
+            priority: 1000000
           # Catch-all: no Host rule, lowest priority. Any other hostname or IP on
           # :80/:443 goes to the app. (Login only works over https: the app's
           # session cookie is Secure.)

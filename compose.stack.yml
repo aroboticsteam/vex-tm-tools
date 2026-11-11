@@ -49,6 +49,9 @@
 #   HOST_GATEWAY_IP        docker0 address (default 172.17.0.1): the lighting UI
 #                          binds to it so Traefik, not the LAN, is the only way in.
 #
+# Region protection: GEO_ALLOW_COUNTRIES (default GB; "GB|IE" for several) limits traffic that came through
+# Cloudflare (CF-IPCountry); LAN/tailnet clients are unaffected.
+#
 # Ports: 80/443 (Traefik), 3000 (app direct), 64738 tcp+udp (Mumble, voice profile).
 
 name: tmtools-stack
