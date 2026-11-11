@@ -57,6 +57,22 @@
   .tile { background: #1a1f2b; border-radius: 10px; padding: .6rem .8rem; } .tile b { display: block; font-size: 1.35rem; } .tile span { color: var(--muted); font-size: .8rem; }
   .chips { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .9rem; } .chip { background: #24304f; border: 1px solid #2f3d63; border-radius: 999px; padding: .2rem .75rem; font-size: .88rem; }
   .spons { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; } .spons img { max-height: 48px; }
+  img, iframe { max-width: 100%; } main, .card { overflow-wrap: anywhere; } td, th { overflow-wrap: normal; }
+  nav a, .tabs button, select, input, .btn { min-height: 40px; }
+  nav a, .btn { display: inline-flex; align-items: center; }
+  .hero { min-height: calc(100dvh - 3.4rem); }
+  @media (max-width: 640px) {
+    .bar { padding: .5rem .75rem; gap: .35rem .6rem; } .bar h1 { font-size: 1rem; flex-basis: 100%; }
+    nav { flex-wrap: nowrap; overflow-x: auto; width: 100%; -webkit-overflow-scrolling: touch; scrollbar-width: none; } nav::-webkit-scrollbar { display: none; }
+    nav a { white-space: nowrap; padding: .4rem .75rem; }
+    main { padding: .75rem; } .hero { margin: -.75rem -.75rem 0; padding: 1.5rem 1rem; }
+    .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+    .vids, .clips { grid-template-columns: 1fr; }
+    table { font-size: .85rem; } th, td { padding: .4rem .5rem; white-space: nowrap; }
+    .hist .card { padding: 1rem; } .kv { grid-template-columns: 1fr; gap: 0; } .kv dd { margin-bottom: .5rem; }
+    .tools > * { flex: 1 1 100%; } input, select { font-size: 16px; }
+    #pop { padding: .5rem; } .map { max-height: 60vh; }
+  }
 </style>
 </head>
 <body>
