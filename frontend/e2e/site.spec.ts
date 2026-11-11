@@ -81,7 +81,7 @@ test.describe('public site and its admin tools', () => {
     await expect(page.getByText('Settings saved')).toBeVisible();
 
     const overview = await ok<{ map: { image_url: string; rooms: { name: string }[] } }>(await request.get('/api/v1/public/site/overview'));
-    expect(overview.map.image_url).toMatch(/^https?:\/\//);
+    expect(overview.map.image_url).toMatch(/^\/api\/v1\/public\/site\/image\/[0-9a-f]{32}\.png$/);
     expect(overview.map.rooms.map((r) => r.name)).toEqual(['Main Hall']);
   });
 
