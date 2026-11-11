@@ -808,3 +808,4 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 - **Site mobile CSS (2026-11-11):** the phone rules for `site.html` (see mobile pass) were missing from #66 and landed in a follow-up.
 
 - **Emcee audience-display control (2026-11-11):** emcee stations get a "Screens" tab (`display` screen) on `/station/<slug>` with big buttons (Results, Rankings, Skills rankings, Schedule, Match preview, In match, Alliance selection, Elimination bracket, Skills, Season, Logo, Blank) that switch the VEX TM audience display via `POST /api/v1/public/stations/{slug}/audience-display`. Display values come from Match Control's list; the exact TM enum for results (`MATCH_RESULTS`) is unverified against a live TM.
+- **Hero fill (2026-11-11):** the homepage hero image fills the screen with `background-size: cover` (cropped to fit, never stretched).

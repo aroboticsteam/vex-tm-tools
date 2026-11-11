@@ -60,7 +60,7 @@
   img, iframe { max-width: 100%; } main, .card { overflow-wrap: anywhere; } td, th { overflow-wrap: normal; }
   nav a, .tabs button, select, input, .btn { min-height: 40px; }
   nav a, .btn { display: inline-flex; align-items: center; }
-  .hero { min-height: calc(100dvh - 3.4rem); }
+  .hero { min-height: calc(100vh - 3.4rem); min-height: calc(100dvh - 3.4rem); background-size: cover; background-position: center; background-repeat: no-repeat; } /* fills the screen, keeps the photo's proportions (cropped, never stretched) */
   @media (max-width: 640px) {
     .bar { padding: .5rem .75rem; gap: .35rem .6rem; } .bar h1 { font-size: 1rem; flex-basis: 100%; }
     nav { flex-wrap: nowrap; overflow-x: auto; width: 100%; -webkit-overflow-scrolling: touch; scrollbar-width: none; } nav::-webkit-scrollbar { display: none; }
