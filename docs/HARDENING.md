@@ -27,10 +27,12 @@ sudo systemctl disable --now rpcbind.service rpcbind.socket avahi-daemon.service
 sudo apt-get update && sudo apt-get install -y fail2ban unattended-upgrades nftables
 sudo systemctl enable --now fail2ban unattended-upgrades
 
-# 4. Firewall: only the LAN and the tailnet may reach SSH; the web ports stay open to the LAN.
-#    Docker-published ports bypass INPUT, so filtering is in DOCKER-USER via the `inet` table below.
+# 4. Host firewall for the host's own services (SSH etc.). Docker-published ports (80/443/53) are
+#    forwarded to containers and are not touched by this INPUT filter; they are LAN-only because the
+#    server has no public address. Own table, so Docker's and Tailscale's rules are left alone.
 sudo tee /etc/nftables.conf <<'CONF'
-flush ruleset
+table inet host
+delete table inet host
 table inet host {
   chain input {
     type filter hook input priority 0; policy drop;
@@ -46,7 +48,7 @@ table inet host {
 CONF
 sudo nft -c -f /etc/nftables.conf && sudo systemctl enable --now nftables
 ```
-Before step 4 check that Docker's own tables are not flushed (`flush ruleset` removes them; restart Docker afterwards: `sudo systemctl restart docker`).
+Check SSH from the LAN and over Tailscale in a second session before closing the first.
 
 ## Known residual risks
 - The wildcard certificate is self-signed (no HSTS possible); move to ACME when the domain is reachable.
