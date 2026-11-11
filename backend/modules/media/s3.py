@@ -264,6 +264,20 @@ async def object_size(s3_key: str) -> int | None:
             raise
 
 
+async def get_object_bytes(s3_key: str) -> bytes | None:
+    """Whole body of a (small) `s3_key`, or None if it does not exist."""
+    config = await _resolved_config()
+    _require_s3_settings(config)
+    async with _client_ctx(config, config.endpoint_url) as s3:
+        try:
+            obj = await s3.get_object(Bucket=config.bucket, Key=s3_key)
+            return await obj["Body"].read()
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code", "") in ("404", "NoSuchKey", "NotFound"):
+                return None
+            raise
+
+
 async def delete_object(s3_key: str) -> None:
     """Delete `s3_key` from the configured bucket. Idempotent — deleting a
     key that doesn't exist is not an error (matches S3 semantics)."""

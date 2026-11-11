@@ -498,7 +498,8 @@ Generated reference: [`docs/API.md`](docs/API.md) and the live `/docs` (Swagger)
 | PUT | `/api/v1/teams/{number}` (pit location, notes, website, `inspection_status`) | `teams:edit` |
 | POST/DELETE | `/api/v1/teams/{number}/logo` | `teams:edit` |
 | POST | `/api/v1/teams/{number}/video`, `/api/v1/teams/{number}/clips/{kind}` | `video:upload` |
-| POST | `/api/v1/site/images` | `settings:edit` |
+| POST | `/api/v1/site/images` | `settings:edit` (returns `{key, url}`; `url` is the same-origin `/api/v1/public/site/image/{key}`) |
+| GET | `/api/v1/public/site/image/{name}` | **public** — streams an uploaded site image (hero/map/sponsor) from S3 through the app (32-hex `.png/.jpg/.gif/.webp` names only, `nosniff`, 1 h cache); replaces presigned URLs so images load without the browser reaching/trusting the S3 host |
 | GET | `/api/v1/match-recordings` | `settings:read` |
 | PUT/DELETE, POST `/import` | `/api/v1/match-recordings[/…]` | `settings:edit` |
 
@@ -799,3 +800,5 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 - **2026-11-11:** Team-site feedback pass: IQ shows one Teams column / single score and no W-L-T; unplayed matches have `score: null`; rankings drop 0-match teams (`played`, `tie` added; numeric division sort; team page uses TM's own avg/high); public checklist card removed; team videos shown with download buttons (`downloads`, presigned attachment URLs); season history redesigned (card per event); homepage is a full-screen hero (`hero_image_key`/`hero_image_url`, Settings "Homepage image" control) plus top-50 qualification/skills; the QR panel removed from `room.html`; admin navbar labels always visible (`index.css`). The bus tracker (coach ETA board) was **removed** (see §10.8).
 - **2026-11-11:** Removed the QR mechanism for team notifications (`GET /room/{slug}/qr.svg`, admin Rooms QR modal, `segno`, `PUBLIC_BASE_URL`, `?room=` gating on `/notify` and the manifest). `/notify` is now an open page where anyone picks any team(s); `POST /public/push/subscribe` no longer takes/validates a room (legacy `room` key ignored; team numbers format-validated); `SubscriptionStatus` has no `room`. Tests updated (`test_routers.py`, `test_schemas.py`). No migration.
 - **Navbar groups (2026-11-11):** admin navbar regrouped into labelled dropdowns (Production, Video, Event, Automation, Admin, Debug); group names always visible.
+
+- **Site image fix (2026-11-11):** uploaded hero/map/sponsor images are now served same-origin via `GET /api/v1/public/site/image/{name}` instead of presigned S3 URLs (the self-signed `s3.` host made them fail to load in browsers); `s3.get_object_bytes` added.

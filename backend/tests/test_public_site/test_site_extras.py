@@ -175,9 +175,9 @@ async def test_overview_dashboard_next_competition_and_images(api):
     nc = o["next_competition"]
     assert nc["name"] == "Nationals" and nc["days_until"] > 1000 and nc["url"] is None  # unsafe scheme dropped
     assert nc["registration_url"] == "https://reg.example.com/x" and nc["location"] == "Birmingham"
-    assert o["sponsors"][0] == {"name": "Kingston", "url": "https://k.example.com", "logo_url": f"https://s3.test/site/images/{key}"}
+    assert o["sponsors"][0] == {"name": "Kingston", "url": "https://k.example.com", "logo_url": f"/api/v1/public/site/image/{key}"}
     assert o["sponsors"][1]["logo_url"] is None  # path-traversal key and non-http url both refused
-    assert o["map"]["image_url"] == f"https://s3.test/site/images/{key}"
+    assert o["map"]["image_url"] == f"/api/v1/public/site/image/{key}"
     assert o["map"]["rooms"] == [{"name": "M9", "x": 100, "y": 0, "description": None, "teams": []}]  # clamped; junk rooms dropped
     assert "bus_tracker" not in o  # removed; stored data is ignored
     h = o["highlights"]
@@ -190,7 +190,7 @@ async def test_site_image_upload_validates_content_and_size(api):
     ok = await api.post("/api/v1/site/images", files={"file": ("map.png", PNG, "image/png")})
     assert ok.status_code == 201
     body = ok.json()
-    assert body["key"].endswith(".png") and len(body["key"]) == 36 and body["url"].startswith("https://s3.test/site/images/")
+    assert body["key"].endswith(".png") and len(body["key"]) == 36 and body["url"] == f"/api/v1/public/site/image/{body['key']}"
     assert api.uploads.await_args.args[1] == f"site/images/{body['key']}"
     assert (await api.post("/api/v1/site/images", files={"file": ("a.jpg", JPEG, "image/jpeg")})).json()["key"].endswith(".jpg")
     assert (await api.post("/api/v1/site/images", files={"file": ("a.webp", WEBP, "image/webp")})).json()["key"].endswith(".webp")
@@ -312,3 +312,15 @@ async def test_captured_recordings_appear_on_the_public_site(api):
         async with api.factory() as session:
             await session.execute(delete(CaptureRecording).where(CaptureRecording.match_key.in_([q1, q2])))
             await session.commit()
+
+
+async def test_site_image_is_served_same_origin(api, monkeypatch):
+    key = "c" * 32 + ".png"
+    getter = AsyncMock(side_effect=lambda k: PNG if k == f"site/images/{key}" else None)
+    monkeypatch.setattr(s3, "get_object_bytes", getter)
+    ok = await api.get(f"/api/v1/public/site/image/{key}")
+    assert ok.status_code == 200 and ok.headers["content-type"] == "image/png" and ok.content == PNG
+    assert ok.headers["x-content-type-options"] == "nosniff"
+    assert (await api.get(f"/api/v1/public/site/image/{'d' * 32}.png")).status_code == 404  # not stored
+    assert (await api.get("/api/v1/public/site/image/..%2Fsecret.png")).status_code == 404  # bad name, never reaches S3
+    assert getter.await_count == 2
