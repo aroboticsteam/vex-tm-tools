@@ -15,12 +15,6 @@ export interface SiteRoom {
   teams?: string[];
 }
 
-export interface SiteBus {
-  name: string;
-  status?: string;
-  eta?: string;
-}
-
 export interface SiteConfig {
   title?: string;
   presented_by?: string;
@@ -37,7 +31,9 @@ export interface SiteConfig {
   map?: { image_key?: string; image_url?: string; rooms?: SiteRoom[] };
   leaderboard?: { panel_seconds?: number; programme_seconds?: number };
   recording_url_template?: string;
-  bus_tracker?: { title?: string; embed_url?: string; link_url?: string; note?: string; buses?: SiteBus[] };
+  /** Full-width homepage photo: an uploaded image key (preferred) or a plain https URL. */
+  hero_image_key?: string;
+  hero_image_url?: string;
   [key: string]: unknown;
 }
 
@@ -73,8 +69,7 @@ export function siteProblems(config: SiteConfig): string[] {
   check('Next competition link', nc?.url);
   check('Registration link', nc?.registration_url);
   config.sponsors?.forEach((s, i) => check(`Sponsor ${i + 1} link`, s.url));
-  check('Bus tracker embed URL', config.bus_tracker?.embed_url);
-  check('Bus tracker link', config.bus_tracker?.link_url);
+  check('Homepage image URL', config.hero_image_url);
   const template = config.recording_url_template;
   if (template && template.trim() && !isHttpUrl(template.replace(/\{[a-z]+\}/g, 'x'))) {
     out.push('Recording URL template must start with http:// or https://');
@@ -107,12 +102,6 @@ export function tidySite(config: SiteConfig): SiteConfig {
     const rooms = (next.map.rooms ?? []).filter((r) => r.name.trim()).map((r) => clean(r));
     next.map = clean({ ...next.map, rooms });
     if (!next.map.image_key && !next.map.image_url && !rooms.length) delete next.map;
-  }
-  if (next.bus_tracker) {
-    const buses = (next.bus_tracker.buses ?? []).filter((b) => b.name.trim()).map((b) => clean(b));
-    const tracker = clean({ ...next.bus_tracker, buses: buses.length ? buses : undefined });
-    if (Object.keys(tracker).length) next.bus_tracker = tracker;
-    else delete next.bus_tracker;
   }
   return next;
 }

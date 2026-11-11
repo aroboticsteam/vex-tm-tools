@@ -47,24 +47,18 @@ test.describe('public site and its admin tools', () => {
     await page.getByRole('button', { name: /add sponsor/i }).click();
     await page.getByLabel('Sponsor 1 name').fill('Kingston');
     await page.getByLabel('Sponsor 1 link').fill('https://kingston.example');
-    await page.getByRole('button', { name: /add bus/i }).click();
-    await page.getByLabel('Bus 1 name').fill('Bus 1');
-    await page.getByLabel('Bus 1 status').fill('At school');
     await page.getByRole('button', { name: /^Save/ }).first().click();
     await expect(page.getByText('Settings saved')).toBeVisible();
 
-    const overview = await ok<{ title: string; next_competition: { name: string; teams: string[] }; sponsors: { name: string }[]; bus_tracker: { buses: { name: string }[] } }>(
+    const overview = await ok<{ title: string; next_competition: { name: string; teams: string[] }; sponsors: { name: string }[] }>(
       await request.get('/api/v1/public/site/overview'),
     );
     expect(overview.title).toBe(title);
     expect(overview.next_competition).toMatchObject({ name: 'E2E Nationals', teams: ['E2E1A', 'E2E2B'] });
     expect(overview.sponsors.map((s) => s.name)).toEqual(['Kingston']);
-    expect(overview.bus_tracker.buses[0].name).toBe('Bus 1');
 
     await page.reload();
     await expect(page.getByLabel('Site title')).toHaveValue(title);
-    await page.goto('/site#bus');
-    await expect(page.getByText('At school')).toBeVisible();
   });
 
   test('an unsafe link is refused before saving', async ({ page }) => {

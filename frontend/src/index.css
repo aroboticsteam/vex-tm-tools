@@ -90,23 +90,18 @@ body {
   padding-left: 0.5rem;
 }
 .navbar-anim-link .nav-label {
-  opacity: 0;
-  max-width: 0;
-  margin-left: 0;
+  /* Always visible: the names are never hidden behind hover/active. */
+  opacity: 1;
+  margin-left: 0.4rem;
   white-space: nowrap;
-  transition: opacity 0.25s, max-width 0.25s, margin-left 0.25s;
   color: #e0e0e0;
   font-size: 0.95rem;
   font-weight: 600;
-  pointer-events: none;
 }
-.navbar-anim-link.active .nav-label,
 .navbar-anim-link:hover .nav-label,
-.navbar-anim-link:focus .nav-label {
-  opacity: 1;
-  max-width: 140px;
-  margin-left: 0.4rem;
-  pointer-events: auto;
+.navbar-anim-link:focus .nav-label,
+.navbar-anim-link.active .nav-label {
+  color: #fff;
 }
 .navbar-anim-link i,
 .navbar-anim-link svg {

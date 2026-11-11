@@ -55,6 +55,10 @@ def _num(value: Any) -> int | float | None:
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
+def _first(*values: Any) -> Any:
+    return next((v for v in values if v is not None), None)
+
+
 def _skills_entry(stats: dict[str, Any]) -> dict[str, Any] | None:
     entries = [e for e in (stats.get("skills") or []) if isinstance(e, dict)]
     return min(entries, key=lambda e: _num(e.get("rank")) or 10**9) if entries else None
@@ -163,25 +167,6 @@ async def _public_map(raw: Any) -> dict[str, Any] | None:
                 }
             )
     return {"image_url": image, "rooms": rooms}
-
-
-def _public_bus_tracker(raw: Any) -> dict[str, Any] | None:
-    """Embedded tracker page and/or a manual status board of buses."""
-    if not isinstance(raw, dict):
-        return None
-    buses = [
-        {"name": _text(b.get("name"), 60), "status": _text(b.get("status"), 100), "eta": _text(b.get("eta"), 40)}
-        for b in (raw.get("buses") or [])[:20]
-        if isinstance(b, dict) and _text(b.get("name"), 60)
-    ] if isinstance(raw.get("buses"), list) else []
-    tracker = {
-        "title": _text(raw.get("title"), 80) or "Bus tracker",
-        "embed_url": safe_url(raw.get("embed_url")),
-        "link_url": safe_url(raw.get("link_url")),
-        "note": _text(raw.get("note"), 500),
-        "buses": buses,
-    }
-    return tracker if tracker["embed_url"] or tracker["link_url"] or buses or tracker["note"] else None
 
 
 def _leaderboard_timing(config: dict[str, Any]) -> dict[str, int]:
@@ -305,7 +290,6 @@ async def overview(
         "sponsors": await _public_sponsors(config.get("sponsors")),
         "map": await _public_map(config.get("map")),
         "presented_by": _text(config.get("presented_by"), 200),
-        "bus_tracker": _public_bus_tracker(config.get("bus_tracker")),
         "hero": {
             "image_url": await _image_url(config.get("hero_image_key")) or safe_image_url(config.get("hero_image_url"))
         },
@@ -341,10 +325,10 @@ async def event(
     rankings, skills = [], []
     for p in profiles:
         stats = _stats(p)
-        ranking = stats.get("ranking") if isinstance(stats.get("ranking"), dict) else None
-        played = _num(ranking.get("numMatches")) if ranking else None
         # Before any match is played TM ranks everyone 0-0: not worth showing.
-        if ranking and _num(ranking.get("rank")) is not None and played != 0:
+        ranking = lb.live_ranking(stats)
+        played = _num(ranking.get("numMatches")) if ranking else None
+        if ranking:
             rankings.append(
                 {
                     "rank": ranking["rank"],
@@ -360,10 +344,14 @@ async def event(
                 }
             )
         entry = _skills_entry(stats)
-        if entry and _num(entry.get("rank")) is not None:
+        # A skills row with no score and no attempts is a team that has not run yet.
+        if entry and _num(entry.get("rank")) is not None and (
+            entry.get("totalScore") or entry.get("driverAttempts") or entry.get("progAttempts")
+        ):
             skills.append(
                 {
                     "rank": entry["rank"],
+                    "tie": bool(entry.get("tie")),
                     "team": p.team_number,
                     "team_name": names.get(p.team_number),
                     "division": stats.get("division_id"),
@@ -374,8 +362,8 @@ async def event(
                     "prog_attempts": _num(entry.get("progAttempts")),
                 }
             )
-    rankings.sort(key=lambda r: (str(r["division"]), r["rank"]))
-    skills.sort(key=lambda r: (str(r["division"]), r["rank"]))
+    rankings.sort(key=lambda r: (lb.division_sort_key(r["division"]), r["rank"], r["team"]))
+    skills.sort(key=lambda r: (lb.division_sort_key(r["division"]), r["rank"], r["team"]))
 
     recordings = await _recordings(db)
     template = _recording_template(await _site_config(db))
@@ -444,8 +432,9 @@ async def team(
             "wins": _num(ranking.get("wins")),
             "losses": _num(ranking.get("losses")),
             "ties": _num(ranking.get("ties")),
-            "avg_points": _num(stats.get("qual_avg")) if _num(stats.get("qual_avg")) is not None else _num(ranking.get("avgPoints")),
-            "high_score": _num(stats.get("qual_high")),
+            # Same source as the rankings table (TM's own numbers); the match-derived values are a fallback.
+            "avg_points": _first(_num(ranking.get("avgPoints")), _num(stats.get("qual_avg"))),
+            "high_score": _first(_num(ranking.get("highScore")), _num(stats.get("qual_high"))),
             "skills_rank": _num(skills.get("rank")),
             "skills_total": _num(skills.get("totalScore")),
             "skills_driver": _num(skills.get("driverHighScore")),

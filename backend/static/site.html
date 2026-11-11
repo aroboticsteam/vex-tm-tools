@@ -43,6 +43,19 @@
   .pin { position: absolute; transform: translate(-50%, -50%); background: var(--accent); color: #fff; border: 2px solid #fff; border-radius: 999px; padding: .15rem .55rem; font-size: .8rem; cursor: pointer; }
   #pop { position: fixed; inset: 0; background: #000b; display: none; align-items: center; justify-content: center; padding: 1rem; z-index: 20; } #pop .box { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 1.2rem; max-width: 520px; width: 100%; max-height: 80vh; overflow: auto; }
   footer { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 3rem; color: var(--muted); font-size: .9rem; }
+  .hero { position: relative; display: flex; align-items: center; justify-content: center; text-align: center; min-height: calc(100vh - 3.4rem); margin: -1rem -1rem 0; padding: 2rem 1.2rem; background: radial-gradient(ellipse at 50% 30%, #1d2a4a, var(--bg) 70%) center / cover no-repeat; overflow: hidden; }
+  .hero.has-img::before { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, #0008 0%, #0003 45%, #000a 100%); }
+  .hero h1 { position: relative; margin: 0; font-size: clamp(2rem, 6vw, 4.2rem); line-height: 1.1; text-shadow: 0 2px 18px #000c; }
+  .hero .hint { position: absolute; bottom: 1.2rem; left: 0; right: 0; color: #dfe5f5; font-size: .95rem; text-shadow: 0 1px 8px #000c; }
+  .section { padding-top: 2rem; }
+  .vids .card b { display: block; } .vids video { width: 100%; }
+  .vids { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .btn { display: inline-block; background: var(--accent); color: #fff; border-radius: 10px; padding: .65rem 1.2rem; font-weight: 600; margin-top: .7rem; } .btn:hover { text-decoration: none; filter: brightness(1.12); }
+  .hist { display: grid; gap: 1.1rem; }
+  .hist .card { padding: 1.2rem 1.3rem; } .hist h3 { margin: 0 0 .15rem; font-size: 1.1rem; } .hist .when { color: var(--muted); font-size: .9rem; margin-bottom: .9rem; }
+  .tiles { display: grid; gap: .7rem; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+  .tile { background: #1a1f2b; border-radius: 10px; padding: .6rem .8rem; } .tile b { display: block; font-size: 1.35rem; } .tile span { color: var(--muted); font-size: .8rem; }
+  .chips { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .9rem; } .chip { background: #24304f; border: 1px solid #2f3d63; border-radius: 999px; padding: .2rem .75rem; font-size: .88rem; }
   .spons { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; } .spons img { max-height: 48px; }
 </style>
 </head>
@@ -54,7 +67,7 @@
 <footer id="foot"></footer>
 <script>
 (function () {
-  var NAV = [['home', 'Home'], ['event', 'Event'], ['teams', 'Teams'], ['live', 'Livestreams'], ['map', 'Map'], ['bus', 'Bus']];
+  var NAV = [['home', 'Home'], ['event', 'Event'], ['teams', 'Teams'], ['live', 'Livestreams'], ['map', 'Map']];
   var view = document.getElementById('view'), cache = {}, timers = [];
 
   function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined && text !== null) n.textContent = text; return n; }
@@ -63,6 +76,42 @@
   function recLink(m) { if (!m.recording_url) return ''; var a = el('a', null, '▶ Watch'); a.href = m.recording_url; a.target = '_blank'; a.rel = 'noopener'; return a; }
   function teamLink(n) { var a = el('a', null, n); a.href = '#team/' + encodeURIComponent(n); return a; }
   function num(v, d) { return v === null || v === undefined ? '–' : (d !== undefined && typeof v === 'number' ? v.toFixed(d) : v); }
+  function isIq(m) { return m.programme === 'iq' || (!m.programme && m.red.length <= 1 && m.blue.length <= 1); }
+  function teamsCell(m, selfNumber) {
+    var s = el('span');
+    m.red.concat(m.blue).forEach(function (n, i) { if (i) s.appendChild(document.createTextNode(' & ')); s.appendChild(selfNumber && n === selfNumber ? el('b', null, n) : teamLink(n)); });
+    return s;
+  }
+  function alliance(list, cls, selfNumber) {
+    var s = el('span', cls);
+    list.forEach(function (n, i) { if (i) s.appendChild(document.createTextNode(', ')); s.appendChild(selfNumber && n === selfNumber ? el('b', null, n) : teamLink(n)); });
+    return s;
+  }
+  // Match rows: IQ gets one "Teams" column and one score; VRC keeps red/blue.
+  function matchTable(ms, selfNumber, empty) {
+    var iq = ms.length > 0 && ms.every(isIq);
+    var heads = iq ? ['Match', 'Time', 'Teams', 'Score', ''] : ['Match', 'Time', 'Red', 'Blue', 'Score', ''];
+    return table(heads, ms.map(function (m) {
+      var sc = m.score ? (iq ? String(m.score[0]) : m.score[0] + ' – ' + m.score[1]) : '';
+      if (iq) return tr([m.label, fmtTime(m.scheduled_at), teamsCell(m, selfNumber), sc, recLink(m)], '');
+      return tr([m.label, fmtTime(m.scheduled_at), alliance(m.red, 'red', selfNumber), alliance(m.blue, 'blue', selfNumber), sc, recLink(m)], '');
+    }), empty);
+  }
+  function hasVrc(d, rows) { return rows.some(function (r) { var dv = d.divisions[r.division]; return dv && dv.programme === 'vrc'; }); }
+  function rankTable(d, rows, empty) {
+    var wlt = hasVrc(d, rows);
+    var heads = ['Rank', 'Team'].concat(wlt ? ['W-L-T'] : []).concat(['Avg pts', 'High']);
+    return table(heads, rows.map(function (r) {
+      var cells = [r.rank, teamLabel(r)];
+      if (wlt) cells.push(num(r.wins) + '-' + num(r.losses) + '-' + num(r.ties));
+      return tr(cells.concat([num(r.avg_points, 1), num(r.high_score)]), '');
+    }), empty);
+  }
+  function skillsTable(rows, empty) {
+    return table(['Rank', 'Team', 'Total', 'Driver', 'Prog', 'Attempts D/P'], rows.map(function (r) {
+      return tr([r.rank + (r.tie ? '=' : ''), teamLabel(r), num(r.total), num(r.driver), num(r.prog), num(r.driver_attempts) + '/' + num(r.prog_attempts)], '');
+    }), empty);
+  }
   function clearTimers() { timers.forEach(clearInterval); timers = []; }
   function tr(cells, cls) { var r = el('tr', cls); cells.forEach(function (c) { var td = el('td'); if (c && c.nodeType) td.appendChild(c); else { td.textContent = c === null || c === undefined ? '–' : c; if (typeof c === 'number') td.className = 'n'; } r.appendChild(td); }); return r; }
   function table(heads, rows, empty) {
@@ -74,28 +123,36 @@
   }
 
   // ── Home ───────────────────────────────────────────────────────────
-  function home(o) {
+  function home(o, d) {
     var box = el('div');
-    var stats = el('div', 'grid');
-    [['teams', 'Teams'], ['matches_played', 'Matches played'], ['matches_total', 'Matches scheduled'], ['awards', 'Awards']].forEach(function (s) {
-      var c = el('div', 'card stat'); c.appendChild(el('b', null, String(o.stats[s[0]]))); c.appendChild(el('span', null, s[1])); stats.appendChild(c);
-    });
-    box.appendChild(el('h2', null, 'Welcome to ' + o.title)); box.appendChild(stats);
-    var hl = o.highlights;
-    if (hl) {
-      var facts = [];
-      if (hl.active_programmes && hl.active_programmes.length) facts.push(['Active seasons', hl.active_programmes.map(function (p) { return p.label; }).join(' + ')]);
-      facts.push(['Awards this season', hl.total_awards]);
-      if (hl.best_world_skills) facts.push(['Best world skills rank', '#' + hl.best_world_skills.rank + ' · ' + hl.best_world_skills.team]);
-      if (hl.best_uk_skills) facts.push(['Top UK team (world skills)', '#' + hl.best_uk_skills.rank + ' · ' + hl.best_uk_skills.team]);
-      if (hl.top_combined_skills) facts.push(['Top combined skills', hl.top_combined_skills.total + ' · ' + hl.top_combined_skills.team]);
-      var hg = el('div', 'grid'); hg.style.marginTop = '.8rem';
-      facts.forEach(function (f) { var c2 = el('div', 'card stat'); c2.appendChild(el('b', null, String(f[1]))); c2.appendChild(el('span', null, f[0])); hg.appendChild(c2); });
-      box.appendChild(hg);
+    var img = o.hero && o.hero.image_url;
+    var hero = el('section', 'hero' + (img ? ' has-img' : ''));
+    if (img) hero.style.backgroundImage = 'url("' + String(img).replace(/"/g, '%22') + '")';
+    hero.appendChild(el('h1', null, 'Welcome to ' + o.title));
+    hero.appendChild(el('div', 'hint', '↓ Rankings below'));
+    box.appendChild(hero);
+
+    var sec = el('section', 'section'), tabs = el('div', 'tabs'), holder = el('div');
+    var tab = 'rank';
+    function top(rows) {
+      return rows.slice().sort(function (a, b) { return (a.rank - b.rank) || (String(a.division) < String(b.division) ? -1 : 1) || (a.team < b.team ? -1 : 1); }).slice(0, 50);
     }
+    function draw() {
+      tabs.replaceChildren();
+      [['rank', 'Top 50 qualification rankings'], ['skills', 'Top 50 skills']].forEach(function (t) {
+        var bt = el('button', tab === t[0] ? 'active' : '', t[1]); bt.addEventListener('click', function () { tab = t[0]; draw(); }); tabs.appendChild(bt);
+      });
+      holder.replaceChildren(tab === 'rank'
+        ? rankTable(d, top(d.rankings), 'Rankings will appear once qualification matches are played.')
+        : skillsTable(top(d.skills), 'No skills scores yet.'));
+      if (holder.firstChild.className === 'scroll') holder.firstChild.style.maxHeight = 'none';
+    }
+    sec.appendChild(tabs); sec.appendChild(holder); box.appendChild(sec); draw();
+    var more = el('a', null, 'Full event page →'); more.href = '#event'; more.style.display = 'inline-block'; more.style.marginTop = '.6rem'; box.appendChild(more);
+
     var nc = o.next_competition;
     if (nc && nc.name) {
-      var c = el('div', 'card'); c.style.marginTop = '1rem';
+      var c = el('div', 'card'); c.style.marginTop = '1.5rem';
       c.appendChild(el('b', null, 'Next competition: ' + nc.name));
       var when = [nc.date, nc.location].filter(Boolean).join('  ·  ');
       if (nc.days_until !== null && nc.days_until !== undefined && nc.days_until >= 0) when += (when ? '  ·  ' : '') + (nc.days_until === 0 ? 'today' : nc.days_until + ' day' + (nc.days_until === 1 ? '' : 's') + ' left');
@@ -171,20 +228,11 @@
       if (!d.agenda.length) box.appendChild(el('div', 'empty', 'No agenda published yet.'));
     } else if (state.tab === 'matches') {
       var ms = d.matches.filter(function (m) { return inScope(m.division); });
-      box.appendChild(table(['Match', 'Time', 'Red', 'Blue', 'Score', ''], ms.map(function (m) {
-        var r = el('span', 'red'), b = el('span', 'blue');
-        m.red.forEach(function (n, i) { if (i) r.appendChild(document.createTextNode(', ')); r.appendChild(teamLink(n)); });
-        m.blue.forEach(function (n, i) { if (i) b.appendChild(document.createTextNode(', ')); b.appendChild(teamLink(n)); });
-        return tr([m.label, fmtTime(m.scheduled_at), r, b, m.score ? m.score[0] + ' – ' + m.score[1] : '', recLink(m)], '');
-      }), 'No matches scheduled yet.'));
+      box.appendChild(matchTable(ms, null, 'No matches scheduled yet.'));
     } else if (state.tab === 'rank') {
-      box.appendChild(table(['Rank', 'Team', 'W-L-T', 'Avg pts', 'High'], d.rankings.filter(function (r) { return inScope(r.division); }).map(function (r) {
-        return tr([r.rank, teamLabel(r), num(r.wins) + '-' + num(r.losses) + '-' + num(r.ties), num(r.avg_points, 1), num(r.high_score)], '');
-      }), 'Rankings will appear once qualification matches are played.'));
+      box.appendChild(rankTable(d, d.rankings.filter(function (r) { return inScope(r.division); }), 'Rankings will appear once qualification matches are played.'));
     } else {
-      box.appendChild(table(['Rank', 'Team', 'Total', 'Driver', 'Prog', 'Attempts D/P'], d.skills.filter(function (r) { return inScope(r.division); }).map(function (r) {
-        return tr([r.rank, teamLabel(r), num(r.total), num(r.driver), num(r.prog), num(r.driver_attempts) + '/' + num(r.prog_attempts)], '');
-      }), 'No skills scores yet.'));
+      box.appendChild(skillsTable(d.skills.filter(function (r) { return inScope(r.division); }), 'No skills scores yet.'));
     }
     return box;
   }
@@ -241,43 +289,57 @@
     var g = el('div', 'grid');
     g.appendChild(kv('General', [['Organisation', t.organisation], ['Location', t.location], ['Robot name', t.robot_name], ['Division', t.division], ['Pit', t.pit_location]]));
     var c = t.current;
-    g.appendChild(kv('Current competition', [['Qualification rank', c.qual_rank], ['Record (W-L-T)', c.wins === null ? null : c.wins + '-' + c.losses + '-' + c.ties], ['Average points', num(c.avg_points, 1)], ['Highest score', c.high_score], ['Skills rank', c.skills_rank], ['Skills total', c.skills_total], ['Driver / Prog', num(c.skills_driver) + ' / ' + num(c.skills_prog)], ['Attempts (D/P)', num(c.skills_driver_attempts) + ' / ' + num(c.skills_prog_attempts)]]));
+    var curRows = [['Qualification rank', c.qual_rank], ['Average points', num(c.avg_points, 1)], ['Highest score', c.high_score], ['Skills rank', c.skills_rank], ['Skills total', c.skills_total], ['Driver / Prog', num(c.skills_driver) + ' / ' + num(c.skills_prog)], ['Attempts (D/P)', num(c.skills_driver_attempts) + ' / ' + num(c.skills_prog_attempts)]];
+    if (t.programme !== 'iq' && c.wins !== null) curRows.splice(1, 0, ['Record (W-L-T)', c.wins + '-' + c.losses + '-' + c.ties]);
+    g.appendChild(kv('Current competition', curRows));
     g.appendChild(kv('Season', [['Events attended', t.season.events_attended], ['Awards', t.season.awards], ['Skills rank (season)', t.season.world_skills_rank]]));
-    if (t.checklist) {
-      var ck = t.checklist, labels = { NOT_STARTED: 'Not started', IN_PROGRESS: 'In progress', PASSED: 'Passed' };
-      g.appendChild(kv('Checklist (' + ck.done + '/' + ck.total + ')', [
-        ['Inspection', (ck.inspection === 'PASSED' ? '✓ ' : '') + (labels[ck.inspection] || ck.inspection)],
-        ['360 robot video', ck.bot_video ? '✓ Done' : 'Not yet'],
-        ['Team video', ck.team_video ? '✓ Done' : 'Not yet']
-      ]));
-    }
     box.appendChild(g);
 
-    if (t.clips.bot || t.clips.team) {
-      box.appendChild(el('h2', null, 'Clips'));
-      var cl = el('div', 'clips');
-      [['bot', 'Robot 360'], ['team', 'Team']].forEach(function (k) {
-        if (!t.clips[k[0]]) return;
+    var dls = t.downloads || {}, clips = t.clips || {};
+    var kinds = [['bot', '360° robot video'], ['team', 'Team video']].filter(function (k) { return (dls[k[0]] && dls[k[0]].url) || clips[k[0]]; });
+    if (kinds.length) {
+      box.appendChild(el('h2', null, 'Videos'));
+      var vids = el('div', 'vids');
+      kinds.forEach(function (k) {
+        var dl = dls[k[0]], clip = clips[k[0]];
         var w = el('div', 'card'); w.appendChild(el('b', null, k[1]));
-        var v = el('video'); v.src = t.clips[k[0]]; v.controls = true; v.loop = true; v.muted = true; v.playsInline = true; v.autoplay = true; w.appendChild(v);
-        var dl = el('a', null, 'Download'); dl.href = t.clips[k[0]]; dl.download = t.team_number + '-' + k[0] + '.webm'; dl.style.display = 'block'; w.appendChild(dl);
-        cl.appendChild(w);
+        var src = clip || (dl && dl.url);
+        if (src) { var v = el('video'); v.src = src; v.controls = true; v.loop = true; v.muted = true; v.playsInline = true; v.preload = 'metadata'; v.style.marginTop = '.6rem'; w.appendChild(v); }
+        var a = el('a', 'btn', '⬇ Download ' + k[1].toLowerCase());
+        if (dl && dl.url) { a.href = dl.url; a.setAttribute('download', dl.name || ''); } else { a.href = clip; a.setAttribute('download', t.team_number + '-' + k[0] + '.webm'); }
+        w.appendChild(a); vids.appendChild(w);
       });
-      box.appendChild(cl);
+      box.appendChild(vids);
     }
     box.appendChild(el('h2', null, 'Schedule'));
-    box.appendChild(table(['Match', 'Time', 'Red', 'Blue', 'Score', ''], t.schedule.map(function (m) {
-      var own = function (list, cls) { var s = el('span', cls); list.forEach(function (n, i) { if (i) s.appendChild(document.createTextNode(', ')); s.appendChild(n === t.team_number ? el('b', null, n) : teamLink(n)); }); return s; };
-      return tr([m.label, fmtTime(m.scheduled_at), own(m.red, 'red'), own(m.blue, 'blue'), m.score ? m.score[0] + ' – ' + m.score[1] : '', recLink(m)], '');
-    }), 'No matches scheduled yet.'));
-    if (t.season.previous_rankings.length || t.season.award_list.length) {
+    box.appendChild(matchTable(t.schedule, t.team_number, 'No matches scheduled yet.'));
+    var prev = t.season.previous_rankings || [], awards = t.season.award_list || [];
+    if (prev.length || awards.length) {
       box.appendChild(el('h2', null, 'Season history'));
-      var hist = el('div', 'card');
-      t.season.previous_rankings.forEach(function (r) {
-        var ev = (r.event && r.event.name) || r.event_name || 'Event';
-        hist.appendChild(el('div', null, ev + (r.rank !== undefined ? '  ·  Qual rank ' + r.rank : '') + (r.wins !== undefined ? '  ·  ' + r.wins + '-' + r.losses + '-' + r.ties : '')));
+      var events = [], byName = {};
+      function slot(name) { if (!byName[name]) { byName[name] = { name: name, results: [], awards: [] }; events.push(byName[name]); } return byName[name]; }
+      function evName(r) { return (r.event && r.event.name) || r.event_name || 'Event'; }
+      prev.forEach(function (r) { slot(evName(r)).results.push(r); });
+      awards.forEach(function (a) { var title = a.title || a.name; if (title) slot(evName(a)).awards.push(title); });
+      var hist = el('div', 'hist');
+      events.forEach(function (e) {
+        var card = el('div', 'card'); card.appendChild(el('h3', null, e.name));
+        var ev0 = e.results[0] && e.results[0].event, start = ev0 && typeof ev0.start === 'string' ? ev0.start.slice(0, 10) : '';
+        if (start) card.appendChild(el('div', 'when', start));
+        e.results.forEach(function (r) {
+          var tiles = el('div', 'tiles');
+          function tile(label, value) { if (value === undefined || value === null || value === '') return; var x = el('div', 'tile'); x.appendChild(el('b', null, String(value))); x.appendChild(el('span', null, label)); tiles.appendChild(x); }
+          tile('Qualification rank', r.rank);
+          var avg = r.average_points !== undefined ? r.average_points : r.avgPoints;
+          if (typeof avg === 'number') tile('Average score', avg.toFixed(1));
+          tile('High score', r.high_score !== undefined ? r.high_score : r.highScore);
+          if (t.programme !== 'iq' && r.wins !== undefined && r.wins !== null) tile('Record (W-L-T)', r.wins + '-' + (r.losses || 0) + '-' + (r.ties || 0));
+          if (r.division && r.division.name) tile('Division', r.division.name);
+          if (tiles.childNodes.length) card.appendChild(tiles);
+        });
+        if (e.awards.length) { var chips = el('div', 'chips'); e.awards.forEach(function (a) { chips.appendChild(el('span', 'chip', '🏆 ' + a)); }); card.appendChild(chips); }
+        hist.appendChild(card);
       });
-      t.season.award_list.forEach(function (a) { hist.appendChild(el('div', 'muted', 'Award: ' + (a.title || a.name || '') + (a.event && a.event.name ? ' (' + a.event.name + ')' : ''))); });
       box.appendChild(hist);
     }
     return box;
@@ -329,18 +391,6 @@
     return box;
   }
 
-  // ── Bus tracker ────────────────────────────────────────────────────
-  function bus(o) {
-    var b = o.bus_tracker;
-    if (!b) return el('div', 'empty', 'No bus information has been published yet.');
-    var box = el('div'); box.appendChild(el('h2', null, b.title));
-    if (b.note) box.appendChild(el('p', 'muted', b.note));
-    if (b.buses.length) box.appendChild(table(['Bus', 'Status', 'ETA'], b.buses.map(function (x) { return tr([x.name, x.status, x.eta], ''); }), ''));
-    if (b.embed_url) { var f = el('div', 'frame'), i = document.createElement('iframe'); i.src = b.embed_url; i.referrerPolicy = 'strict-origin-when-cross-origin'; i.loading = 'lazy'; f.appendChild(i); f.style.marginTop = '1rem'; box.appendChild(f); }
-    if (b.link_url) { var a = el('a', null, 'Open the live bus tracker'); a.href = b.link_url; a.target = '_blank'; a.rel = 'noopener'; box.appendChild(a); }
-    return box;
-  }
-
   // ── Router ─────────────────────────────────────────────────────────
   var evState = { tab: 'agenda', prog: '', div: '' }, teamState = { sort: 'number', q: '' };
   function render() {
@@ -348,12 +398,11 @@
     var hash = location.hash.replace(/^#/, '') || 'home', parts = hash.split('/'), page = parts[0];
     document.querySelectorAll('#nav a').forEach(function (a) { a.className = a.getAttribute('href') === '#' + (page === 'team' ? 'teams' : page) ? 'active' : ''; });
     var load;
-    if (page === 'home') load = get('overview').then(home);
+    if (page === 'home') load = Promise.all([get('overview'), get('event')]).then(function (r) { return home(r[0], r[1]); });
     else if (page === 'event') load = get('event').then(function (d) { return event(d, evState); });
     else if (page === 'teams') load = get('teams').then(function (l) { return teams(l, teamState); });
     else if (page === 'team' && parts[1]) load = get('teams/' + encodeURIComponent(decodeURIComponent(parts[1]))).then(team);
     else if (page === 'live') load = get('livestreams').then(live);
-    else if (page === 'bus') load = get('overview').then(bus);
     else if (page === 'map') load = Promise.all([get('overview'), get('teams')]).then(function (r) { return mapView(r[0], r[1]); });
     else load = Promise.resolve(el('div', 'empty', 'Page not found.'));
     var token = render.token = (render.token || 0) + 1;

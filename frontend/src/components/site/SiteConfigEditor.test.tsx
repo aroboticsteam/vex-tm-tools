@@ -57,6 +57,20 @@ describe('SiteConfigEditor', () => {
     expect(screen.getByTestId('sponsor-row').querySelector('img')).toHaveAttribute('src', 'https://s3.test/abc.png');
   });
 
+  it('uploads a homepage image, stores only its key, previews it and can remove it', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    fireEvent.change(screen.getByLabelText('Upload homepage image'), { target: { files: [new File(['x'], 'hero.png', { type: 'image/png' })] } });
+    expect(upload).toHaveBeenCalledTimes(1);
+    upload.mock.calls[0][1].onSuccess({ key: 'hero.png', url: 'https://s3.test/hero.png' });
+    expect(await screen.findByTestId('hero-preview')).toHaveAttribute('src', 'https://s3.test/hero.png');
+    expect(out().hero_image_key).toBe('hero.png');
+    expect(out().hero_image_url).toBeUndefined();
+    await user.click(screen.getByRole('button', { name: /remove/i }));
+    expect(out().hero_image_key).toBeUndefined();
+    expect(screen.queryByTestId('hero-preview')).toBeNull();
+  });
+
   it('places a room pin by clicking the uploaded map', async () => {
     const user = userEvent.setup();
     render(<Harness />);
@@ -77,20 +91,15 @@ describe('SiteConfigEditor', () => {
     expect(out().map?.rooms).toEqual([]);
   });
 
-  it('edits leaderboard timing, recording template and the bus tracker', async () => {
+  it('edits leaderboard timing, recording template', async () => {
     const user = userEvent.setup();
     render(<Harness />);
     await user.clear(screen.getByLabelText('Seconds per panel'));
     await user.type(screen.getByLabelText('Seconds per panel'), '30');
     await user.type(screen.getByLabelText('Recording URL template'), 'https://r.example/{{label}');
-    await user.type(screen.getByLabelText('Bus tracker embed URL'), 'https://bus.example');
-    await user.click(screen.getByRole('button', { name: /add bus/i }));
-    await user.type(screen.getByLabelText('Bus 1 name'), 'Bus 1');
-    await user.type(screen.getByLabelText('Bus 1 status'), 'At school');
     expect(out()).toMatchObject({
       leaderboard: { panel_seconds: 30 },
       recording_url_template: 'https://r.example/{label}',
-      bus_tracker: { embed_url: 'https://bus.example', buses: [{ name: 'Bus 1', status: 'At school' }] },
     });
   });
 

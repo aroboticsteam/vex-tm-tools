@@ -1,5 +1,5 @@
 """Public site extras (issue #28): leaderboards, season highlights, match
-recordings, team logo/website, uploaded site images, bus tracker."""
+recordings, team logo/website, uploaded site images."""
 from __future__ import annotations
 
 import json
@@ -31,6 +31,25 @@ def team(number, **stats):
 
 
 # ── pure leaderboard logic ───────────────────────────────────────────
+
+
+def test_unplayed_rankings_are_ignored_and_divisions_sort_numerically():
+    from backend.modules.site.leaderboards import compute_leaderboards, division_sort_key, live_ranking
+
+    assert live_ranking({"ranking": {"rank": 1, "numMatches": 0}}) is None  # TM ranks everyone 0-0 before play
+    assert live_ranking({"ranking": {"rank": 1}}) == {"rank": 1}  # numMatches absent: keep
+    assert live_ranking({"ranking": {"rank": 1, "numMatches": 3}}) is not None
+    assert live_ranking({"ranking": {"numMatches": 3}}) is None and live_ranking({}) is None
+    assert sorted(["10", "2", "a", "1"], key=division_sort_key) == ["1", "2", "10", "a"]
+
+    teams = [
+        team("1A", division_id=10, ranking={"rank": 1, "numMatches": 2}),
+        team("2B", division_id=2, ranking={"rank": 1, "numMatches": 2}),
+        team("3C", division_id=2, ranking={"rank": 2, "numMatches": 0}),
+    ]
+    rows = compute_leaderboards(teams, {}, 15)[0]["tournament"]
+    assert [r["team"] for r in rows] == ["2B", "1A"]  # rank tie: division 2 before 10; 3C has not played
+
 
 
 def test_compute_leaderboards_panels_and_programme_split():
@@ -142,7 +161,7 @@ async def test_leaderboards_endpoint_uses_schedule_programmes_and_config_timing(
     assert len((await api.get("/api/v1/public/site/leaderboards?limit=1")).json()["groups"][0]["tournament"]) == 1
 
 
-async def test_overview_dashboard_next_competition_bus_tracker_and_images(api):
+async def test_overview_dashboard_next_competition_and_images(api):
     await seed(api)
     key = "a" * 32 + ".png"
     await set_site(api, {
@@ -151,8 +170,6 @@ async def test_overview_dashboard_next_competition_bus_tracker_and_images(api):
                              "registration_url": "https://reg.example.com/x", "description": "Big one", "teams": [f"{PREFIX}1A"]},
         "sponsors": [{"name": "Kingston", "url": "https://k.example.com", "logo_key": key}, {"name": "Bad", "logo_key": "../../etc/passwd", "logo_url": "ftp://x"}],
         "map": {"image_key": key, "rooms": [{"name": "M9", "x": 140, "y": -5}, {"name": "", "x": 1, "y": 1}, {"name": "NoPos"}]},
-        "bus_tracker": {"title": "Shuttle", "embed_url": "https://bus.example.com/embed", "link_url": "javascript:x", "note": "Every 15 min",
-                        "buses": [{"name": "Bus 1", "status": "At school", "eta": "10:15"}, {"status": "no name"}]},
     })
     o = (await api.get("/api/v1/public/site/overview")).json()
     nc = o["next_competition"]
@@ -162,15 +179,11 @@ async def test_overview_dashboard_next_competition_bus_tracker_and_images(api):
     assert o["sponsors"][1]["logo_url"] is None  # path-traversal key and non-http url both refused
     assert o["map"]["image_url"] == f"https://s3.test/site/images/{key}"
     assert o["map"]["rooms"] == [{"name": "M9", "x": 100, "y": 0, "description": None, "teams": []}]  # clamped; junk rooms dropped
-    bt = o["bus_tracker"]
-    assert bt["embed_url"] == "https://bus.example.com/embed" and bt["link_url"] is None and bt["buses"] == [{"name": "Bus 1", "status": "At school", "eta": "10:15"}]
+    assert "bus_tracker" not in o  # removed; stored data is ignored
     h = o["highlights"]
     assert h["total_awards"] == 1 and h["best_world_skills"] == {"team": f"{PREFIX}1A", "rank": 12}
     assert h["best_uk_skills"]["team"] == f"{PREFIX}1A" and h["top_combined_skills"]["total"] == 40
     assert h["active_programmes"] == [{"programme": "iq", "label": "VIQRC"}]
-
-    await set_site(api, {"bus_tracker": {"title": "empty"}})
-    assert (await api.get("/api/v1/public/site/overview")).json()["bus_tracker"] is None
 
 
 async def test_site_image_upload_validates_content_and_size(api):

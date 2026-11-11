@@ -32,14 +32,14 @@ describe('siteProblems', () => {
     const problems = siteProblems({
       next_competition: { name: 'N', url: 'javascript:x', registration_url: 'https://ok.example', date: '10/01/2027' },
       sponsors: [{ name: 'A', url: 'nope' }],
-      bus_tracker: { embed_url: 'http://bus.example', link_url: 'ftp://x' },
+      hero_image_url: 'ftp://x',
       recording_url_template: 'file:///{label}',
       leaderboard: { panel_seconds: 1, programme_seconds: 99999 },
     });
     expect(problems).toEqual([
       'Next competition link must start with http:// or https://',
       'Sponsor 1 link must start with http:// or https://',
-      'Bus tracker link must start with http:// or https://',
+      'Homepage image URL must start with http:// or https://',
       'Recording URL template must start with http:// or https://',
       'Next competition date must be YYYY-MM-DD',
       'Panel seconds must be between 5 and 3600',
@@ -60,17 +60,17 @@ describe('tidySite', () => {
       next_competition: { name: '', date: '2027-01-10' },
       sponsors: [{ name: ' ', url: 'x' }, { name: 'Kingston', url: '', logo_key: 'k.png' }],
       map: { rooms: [{ name: '', x: 1, y: 1 }] },
-      bus_tracker: { title: '', buses: [{ name: '' }] },
+      hero_image_key: '',
       custom_flag: true,
     });
     expect(out).toEqual({ title: 'QE', sponsors: [{ name: 'Kingston', logo_key: 'k.png' }], custom_flag: true });
   });
-  it('keeps populated map and bus tracker data', () => {
+  it('keeps populated map and homepage image data', () => {
     const out = tidySite({
       map: { image_key: 'a.png', rooms: [{ name: 'M9', x: 10, y: 20, description: '' }] },
-      bus_tracker: { embed_url: 'https://bus.example', buses: [{ name: 'Bus 1', status: 'On time', eta: '' }] },
+      hero_image_key: 'h.png',
     });
     expect(out.map).toEqual({ image_key: 'a.png', rooms: [{ name: 'M9', x: 10, y: 20 }] });
-    expect(out.bus_tracker).toEqual({ embed_url: 'https://bus.example', buses: [{ name: 'Bus 1', status: 'On time' }] });
+    expect(out.hero_image_key).toBe('h.png');
   });
 });

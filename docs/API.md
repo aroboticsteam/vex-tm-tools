@@ -293,9 +293,9 @@ Secured stations: the page link is `/station/{slug}?k=<key>`; every public call 
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/v1/public/site/leaderboards` | Per-programme (IQ/VRC) `overall` (qualification rank + skills rank, lower is better), `tournament`, `skills` and `awards` leaderboards, plus `panel_seconds` / `programme_seconds` (site setting `leaderboard`, default 60 / 240). `?limit=` (max 50). The `/site/leaderboard` page rotates them on the wall clock (`?panel=&programme=&limit=` override). |
-| GET | `/api/v1/public/site/overview` | Now also `highlights` (active programmes, total awards, best world skills rank, top UK team, top combined skills), richer `next_competition` (location, links, `days_until`), `bus_tracker`, and uploaded images resolved to URLs. |
+| GET | `/api/v1/public/site/overview` | Now also `highlights` (active programmes, total awards, best world skills rank, top UK team, top combined skills), richer `next_competition` (location, links, `days_until`), and uploaded images resolved to URLs. |
 | POST | `/api/v1/site/images` | Upload a map/sponsor image (PNG/JPEG/GIF/WebP, 4 MB, content-checked, no SVG); store the returned `key` as `image_key` / `logo_key` in the `site` setting (`settings:edit`). |
 | GET/PUT, DELETE | `/api/v1/match-recordings` | Link a match (`{division, label: "Q12", url, title?}`) to its recording; shown as “▶ Watch” on the public site. `POST .../import` takes lines `division label url [title]` (all-or-nothing). Setting `recording_url_template` (`{division}` `{label}` `{round}` `{instance}` `{match}`) covers scored matches without their own link. |
 | POST/DELETE | `/api/v1/teams/{number}/logo` | Team logo for the public team page (`teams:edit`). `PUT /api/v1/teams/{number}` also takes `website_url` (http(s) only). |
 
-The `site` setting is edited from Settings → Public website (structured form, no JSON). Bus tracker: an embedded tracker page and/or link, plus an optional manual status board (`bus_tracker.buses`).
+The `site` setting is edited from Settings → Public website (structured form, no JSON).

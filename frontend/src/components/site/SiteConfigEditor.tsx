@@ -7,7 +7,6 @@ import {
   parseTeamList,
   percentPosition,
   siteProblems,
-  type SiteBus,
   type SiteConfig,
   type SiteRoom,
   type SiteSponsor,
@@ -54,8 +53,6 @@ export function SiteConfigEditor({
   const setNc = (patch: Partial<NonNullable<SiteConfig['next_competition']>>) => set({ next_competition: { ...nc, ...patch } });
   const problems = siteProblems(value);
   const lb = value.leaderboard ?? {};
-  const bus = value.bus_tracker ?? {};
-  const setBus = (patch: Partial<NonNullable<SiteConfig['bus_tracker']>>) => set({ bus_tracker: { ...bus, ...patch } });
 
   return (
     <div className="space-y-5" data-testid="site-config">
@@ -104,6 +101,7 @@ export function SiteConfigEditor({
         </div>
       </section>
 
+      <HeroImageEditor config={value} onChange={set} disabled={disabled} />
       <SponsorsEditor sponsors={value.sponsors ?? []} onChange={(sponsors) => set({ sponsors })} disabled={disabled} />
       <MapEditor map={value.map ?? {}} onChange={(map) => set({ map })} disabled={disabled} />
 
@@ -152,29 +150,6 @@ export function SiteConfigEditor({
         </p>
       </section>
 
-      <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-vmd-textMuted">Bus tracker</h3>
-        <div className="grid gap-3 md:grid-cols-2">
-          <div>
-            <Label>Title</Label>
-            <Input value={bus.title ?? ''} placeholder="Bus tracker" onChange={(e) => setBus({ title: e.target.value })} disabled={disabled} aria-label="Bus tracker title" />
-          </div>
-          <div>
-            <Label>Embedded tracker page (https)</Label>
-            <Input value={bus.embed_url ?? ''} onChange={(e) => setBus({ embed_url: e.target.value })} disabled={disabled} aria-label="Bus tracker embed URL" />
-          </div>
-          <div>
-            <Label>Link to open the tracker</Label>
-            <Input value={bus.link_url ?? ''} onChange={(e) => setBus({ link_url: e.target.value })} disabled={disabled} aria-label="Bus tracker link" />
-          </div>
-          <div>
-            <Label>Note</Label>
-            <Input value={bus.note ?? ''} onChange={(e) => setBus({ note: e.target.value })} disabled={disabled} aria-label="Bus tracker note" />
-          </div>
-        </div>
-        <BusList buses={bus.buses ?? []} onChange={(buses) => setBus({ buses })} disabled={disabled} />
-      </section>
-
       {problems.length > 0 && (
         <ul className="text-xs text-vmd-danger" data-testid="site-problems">
           {problems.map((p) => (
@@ -212,6 +187,41 @@ function ImageUpload({ label, onUploaded, disabled }: { label: string; onUploade
         <Upload size={14} /> {upload.isPending ? 'Uploading…' : label}
       </Button>
     </>
+  );
+}
+
+function HeroImageEditor({ config, onChange, disabled }: { config: SiteConfig; onChange: Patch<Partial<SiteConfig>>; disabled?: boolean }) {
+  const { data: overview } = usePublicOverview();
+  const [preview, setPreview] = useState<{ key: string; url: string } | null>(null);
+  const shown = preview && preview.key === config.hero_image_key ? preview.url : (overview?.hero?.image_url ?? config.hero_image_url ?? null);
+  const isSet = Boolean(config.hero_image_key || config.hero_image_url);
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-vmd-textMuted">Homepage image</h3>
+        <div className="flex gap-2">
+          <ImageUpload
+            label="Upload homepage image"
+            disabled={disabled}
+            onUploaded={(key, url) => {
+              if (url) setPreview({ key, url });
+              onChange({ hero_image_key: key, hero_image_url: undefined });
+            }}
+          />
+          {isSet && (
+            <Button variant="ghost" type="button" disabled={disabled} onClick={() => onChange({ hero_image_key: undefined, hero_image_url: undefined })}>
+              <Trash2 size={14} /> Remove
+            </Button>
+          )}
+        </div>
+      </div>
+      <p className="mb-1 text-xs text-vmd-textSubtle">Shown full-screen at the top of the team site with “Welcome to” and the site title over it.</p>
+      {isSet && shown ? (
+        <img src={shown} alt="Homepage preview" className="h-24 rounded-lg border border-vmd-border object-cover" data-testid="hero-preview" />
+      ) : (
+        isSet && <span className="text-xs text-vmd-textSubtle">Image set (preview appears after saving).</span>
+      )}
+    </section>
   );
 }
 
@@ -363,29 +373,5 @@ function MapEditor({ map, onChange, disabled }: { map: NonNullable<SiteConfig['m
         </div>
       ))}
     </section>
-  );
-}
-
-function BusList({ buses, onChange, disabled }: { buses: SiteBus[]; onChange: Patch<SiteBus[]>; disabled?: boolean }) {
-  const update = (i: number, patch: Partial<SiteBus>) => onChange(buses.map((b, j) => (j === i ? { ...b, ...patch } : b)));
-  return (
-    <div className="mt-3">
-      <div className="mb-1 flex items-center justify-between">
-        <span className="text-xs text-vmd-textMuted">Status board (optional)</span>
-        <Button variant="secondary" type="button" disabled={disabled} onClick={() => onChange([...buses, { name: '' }])}>
-          <Plus size={14} /> Add bus
-        </Button>
-      </div>
-      {buses.map((b, i) => (
-        <div key={i} className="mb-2 grid items-end gap-2 md:grid-cols-[1fr_2fr_7rem_auto]">
-          <Input value={b.name} placeholder="Bus 1" onChange={(e) => update(i, { name: e.target.value })} disabled={disabled} aria-label={`Bus ${i + 1} name`} />
-          <Input value={b.status ?? ''} placeholder="Status, e.g. At school" onChange={(e) => update(i, { status: e.target.value })} disabled={disabled} aria-label={`Bus ${i + 1} status`} />
-          <Input value={b.eta ?? ''} placeholder="ETA" onChange={(e) => update(i, { eta: e.target.value })} disabled={disabled} aria-label={`Bus ${i + 1} ETA`} />
-          <Button variant="ghost" type="button" disabled={disabled} aria-label={`Remove bus ${i + 1}`} onClick={() => onChange(buses.filter((_, j) => j !== i))}>
-            <Trash2 size={14} />
-          </Button>
-        </div>
-      ))}
-    </div>
   );
 }
