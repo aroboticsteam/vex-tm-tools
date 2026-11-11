@@ -1,0 +1,60 @@
+# TMTools stack: app (pulled from ghcr.io) + Traefik (self-signed wildcard TLS,
+# host-based routing) + Authelia (OIDC login) backed by LLDAP (users and password
+# changes) + Postgres + Redis + Garage (S3), plus optional lighting tracker,
+# Mumble and a Cloudflare tunnel. Split into stack/*.yml (core, auth, edge,
+# extras) pulled in with `include:` (Compose >= 2.20); scripts live in
+# stack/config/. Keep the whole directory together. Run:
+#
+#   docker compose -f compose.stack.yml up -d
+#   docker compose -f compose.stack.yml --profile lighting --profile voice --profile tunnel up -d
+#
+# Secrets (SECRET_KEY, ENCRYPTION_KEY, admin password, S3 keys, LLDAP secrets)
+# are generated on first start and kept in the `secrets` volume; the admin
+# password is printed by `docker compose -f compose.stack.yml logs secrets-init`.
+#
+# Hostnames (all under BASE_DOMAIN, default vex.localhost, which browsers
+# resolve to 127.0.0.1 with no hosts edit; for the event: qerobotics.co.uk):
+#   tmtools.BASE   the app (OIDC redirect host, PUBLIC_BASE_URL)
+#   auth.BASE      Authelia login portal / OIDC issuer
+#   s3.BASE        Garage S3 (presigned URLs handed to browsers/OBS)
+#   ldap.BASE      LLDAP admin UI (users, groups, password changes)
+#   lighting.BASE  lighting tracker, behind Authelia forward auth
+#   comp.BASE      public competitors page (/site) via the Cloudflare tunnel
+#   mumble.BASE    Mumble voice (plain TCP/UDP 64738, not routed by Traefik)
+# Any other hostname or IP on :80/:443 still reaches the app (/admin_login works).
+#
+# Certificates: cert-init makes a self-signed wildcard (BASE + *.BASE) that Traefik
+# serves; clients must trust it (or accept the warning). ACME/Let's Encrypt is
+# not wired up yet (see docs/PLAN_qecomp-server.md 5.3).
+#
+# Optional overrides via shell env or a `.env` / `--env-file`:
+#   BASE_DOMAIN            see above. A hostname, not an IP (Authelia cookies).
+#   TMTOOLS_IMAGE          app image (default ghcr.io/aroboticsteam/vex-tm-tools:backend)
+#   ADMIN_LOCAL_PASSWORD   fixed admin password instead of a generated one
+#                          (only read on the very first start). Same password
+#                          for /admin_login, the LLDAP/Authelia user `admin`.
+#   EXTRA_CA_FILE          host path of a PEM bundle to trust (e.g. a TLS-inspecting
+#                          firewall's CA) for the app and cloudflared.
+#   CLOUDFLARE_TUNNEL_TOKEN  token for `--profile tunnel` (public hostname
+#                          comp.BASE -> http://traefik:8081 set in Cloudflare).
+#   MUMBLE_PASSWORD        server password for `--profile voice`.
+#   VAPID_PRIVATE_KEY / VAPID_PUBLIC_KEY / VAPID_SUBJECT   Web Push keys (optional).
+#   DNS_BIND_IP / DNS_ANSWER_IP / DNS_UPSTREAM   `--profile dns` resolver: LAN address to listen on,
+#                          address answered for BASE_DOMAIN and *.BASE_DOMAIN, upstream (1.1.1.1).
+#   LIGHTING_PUBLIC_HOST   a temporary unguessable hostname (e.g. abc123def456.vmd1.dev) that reaches the
+#                          lighting tracker with NO login via the homelab ingress; unset = disabled.
+#   LIGHTING_IMAGE         default ghcr.io/aroboticsteam/lightpoint:latest
+#   LIGHTING_CONFIG_DIR    host dir with fixtures.json for `--profile lighting`,
+#                          writable by uid 1000 (default ./lighting-config).
+#   HOST_GATEWAY_IP        docker0 address (default 172.17.0.1): the lighting UI
+#                          binds to it so Traefik, not the LAN, is the only way in.
+#
+# Ports: 80/443 (Traefik), 3000 (app direct), 64738 tcp+udp (Mumble, voice profile).
+
+name: tmtools-stack
+
+include:
+  - stack/core.yml
+  - stack/auth.yml
+  - stack/edge.yml
+  - stack/extras.yml

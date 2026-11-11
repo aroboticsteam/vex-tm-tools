@@ -1,0 +1,264 @@
+# Edge: self-signed wildcard certificate and Traefik (host-based routing, public tunnel origin).
+# Part of compose.stack.yml (see its header for configuration).
+
+services:
+  cert-init:
+    image: alpine:3.20
+    environment:
+      BASE_DOMAIN: ${BASE_DOMAIN:-vex.localhost}
+    entrypoint: ["sh", "/gen/gen-cert.sh"]
+    volumes:
+      - certs:/certs
+      - ${EXTRA_CA_FILE:-/dev/null}:/extra-ca.pem:ro
+    restart: "no"
+    configs:
+      - source: cfg_gen_cert
+        target: /gen/gen-cert.sh
+
+  traefik:
+    image: traefik:v3.1
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
+      app:
+        condition: service_started
+      authelia:
+        condition: service_started
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    ports:
+      - "80:80"
+      - "443:443"
+    extra_hosts:
+      # The lighting tracker runs on the host network (Art-Net discovery).
+      - "host.docker.internal:${HOST_GATEWAY_IP:-172.17.0.1}"
+    networks:
+      default:
+        # Containers (the app, Authelia's browser redirects) reach these names at
+        # the same https URL browsers use, which the OIDC issuer check requires.
+        aliases:
+          - tmtools.${BASE_DOMAIN:-vex.localhost}
+          - auth.${BASE_DOMAIN:-vex.localhost}
+          - s3.${BASE_DOMAIN:-vex.localhost}
+    volumes:
+      - certs:/certs:ro
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    configs:
+      - source: cfg_traefik
+        target: /etc/traefik/traefik.yml
+      - source: cfg_dynamic
+        target: /etc/traefik/dynamic.yml
+
+volumes:
+  certs:
+
+configs:
+  cfg_gen_cert:
+    file: ./config/gen-cert.sh
+  cfg_traefik:
+    content: |
+      # Static Traefik config for compose.stack.yml.
+      # Routing lives in dynamic.yml (file provider), no Docker socket is mounted.
+      entryPoints:
+        web:
+          address: ":80"
+          # The homelab ingress (backup path, over the tailnet) terminates TLS
+          # and forwards plain http with X-Forwarded-Proto: https; Authelia and
+          # the app need to see that. Fine here: this port is LAN/tailnet only.
+          forwardedHeaders:
+            insecure: true
+          transport: &transport
+            respondingTimeouts:
+              # Uploads (multi-GB videos) and WebSockets must not be cut off.
+              readTimeout: 0
+              writeTimeout: 0
+              idleTimeout: 0s
+        websecure:
+          address: ":443"
+          transport: *transport
+        # Reachable only inside the compose network (not published): the
+        # Cloudflare tunnel's origin. Serves the public competitors page only.
+        public:
+          address: ":8081"
+          transport: *transport
+
+      providers:
+        file:
+          filename: /etc/traefik/dynamic.yml
+          watch: true
+
+      ping:
+        entryPoint: web
+
+      log:
+        level: INFO
+      accessLog: {}
+  cfg_dynamic:
+    content: |
+      tls:
+        certificates:
+          - certFile: /certs/cert.pem
+            keyFile: /certs/key.pem
+        stores:
+          default:
+            defaultCertificate:
+              certFile: /certs/cert.pem
+              keyFile: /certs/key.pem
+
+      http:
+        middlewares:
+          authelia:
+            forwardAuth:
+              address: http://authelia:9091/api/authz/forward-auth
+              trustForwardHeader: true
+              authResponseHeaders: [Remote-User, Remote-Groups, Remote-Email, Remote-Name]
+          # comp.BASE/ -> /site. A redirect rather than a path prefix: the page
+          # calls absolute /api/v1/public/site/... URLs, which a prefix would break.
+          comp-root:
+            redirectRegex:
+              regex: "^https?://([^/]+)/?$"
+              replacement: "https://$${1}/site"
+              permanent: false
+        routers:
+          # Catch-all: no Host rule, lowest priority. Any other hostname or IP on
+          # :80/:443 goes to the app. (Login only works over https: the app's
+          # session cookie is Secure.)
+          app-http:
+            rule: "PathPrefix(`/`)"
+            entryPoints: [web]
+            service: app
+            priority: 1
+          app-https:
+            rule: "PathPrefix(`/`)"
+            entryPoints: [websecure]
+            service: app
+            priority: 1
+            tls: {}
+          # Named hosts (certificate: the self-signed wildcard for BASE and *.BASE).
+          app:
+            rule: "Host(`tmtools.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [websecure]
+            service: app
+            tls: {}
+          authelia:
+            rule: "Host(`auth.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [websecure]
+            service: authelia
+            tls: {}
+          s3:
+            rule: "Host(`s3.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [websecure]
+            service: garage-s3
+            tls: {}
+          ldap:
+            rule: "Host(`ldap.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [websecure]
+            service: lldap
+            tls: {}
+          lighting:
+            rule: "Host(`lighting.${BASE_DOMAIN:-vex.localhost}`) || Host(`lights.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [websecure]
+            middlewares: [authelia]
+            service: lighting
+            tls: {}
+          # comp.BASE (public competitors page): only "/" (redirected to /site),
+          # the page and its API are served, on the tunnel origin (:8081, via
+          # Cloudflare) and on the LAN (:443). Anything else on that host is
+          # blocked, so the full app is never reachable under this name.
+          # Tunnel origin (plain http; Cloudflare terminates TLS).
+          public-root:
+            rule: "Host(`comp.${BASE_DOMAIN:-vex.localhost}`) && Path(`/`)"
+            entryPoints: [public, web]
+            middlewares: [comp-root]
+            service: noop@internal
+            priority: 100
+          public-site:
+            rule: >-
+              Host(`comp.${BASE_DOMAIN:-vex.localhost}`) &&
+              (Path(`/site`) || Path(`/site/leaderboard`) || PathPrefix(`/api/v1/public/site/`))
+            entryPoints: [public, web]
+            service: app
+            priority: 100
+          public-block-http:
+            rule: "Host(`comp.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [web]
+            service: noop@internal
+            priority: 10
+          # The other named hosts on plain :80, for the homelab ingress backup
+          # path (it forwards Host unchanged). Same services as the https routers.
+          app-web:
+            rule: "Host(`tmtools.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [web]
+            service: app
+          authelia-web:
+            rule: "Host(`auth.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [web]
+            service: authelia
+          s3-web:
+            rule: "Host(`s3.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [web]
+            service: garage-s3
+          ldap-web:
+            rule: "Host(`ldap.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [web]
+            service: lldap
+          lighting-web:
+            rule: "Host(`lighting.${BASE_DOMAIN:-vex.localhost}`) || Host(`lights.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [web]
+            middlewares: [authelia]
+            service: lighting
+          # Temporary unauthenticated "secret URL" for the lighting tracker: the
+          # unguessable host in LIGHTING_PUBLIC_HOST (set in the server .env, not
+          # in git) is the only protection. Reached via the homelab ingress, which
+          # rewrites nothing; disabled while the variable is unset.
+          lighting-direct:
+            rule: "Host(`${LIGHTING_PUBLIC_HOST:-lighting-direct.invalid}`)"
+            entryPoints: [web]
+            service: lighting
+          # Same on the LAN (https).
+          public-root-lan:
+            rule: "Host(`comp.${BASE_DOMAIN:-vex.localhost}`) && Path(`/`)"
+            entryPoints: [websecure]
+            middlewares: [comp-root]
+            service: noop@internal
+            priority: 100
+            tls: {}
+          public-site-lan:
+            rule: >-
+              Host(`comp.${BASE_DOMAIN:-vex.localhost}`) &&
+              (Path(`/site`) || Path(`/site/leaderboard`) || PathPrefix(`/api/v1/public/site/`))
+            entryPoints: [websecure]
+            service: app
+            priority: 100
+            tls: {}
+          public-block:
+            rule: "Host(`comp.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [websecure]
+            service: noop@internal
+            priority: 10
+            tls: {}
+        services:
+          app:
+            loadBalancer:
+              servers:
+                - url: http://app:8000
+          authelia:
+            loadBalancer:
+              servers:
+                - url: http://authelia:9091
+          garage-s3:
+            loadBalancer:
+              servers:
+                - url: http://garage:3900
+          lldap:
+            loadBalancer:
+              servers:
+                - url: http://lldap:17170
+          lighting:
+            loadBalancer:
+              servers:
+                - url: http://host.docker.internal:8080

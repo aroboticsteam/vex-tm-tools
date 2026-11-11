@@ -31,3 +31,4 @@ backend/static/frontend/
 frontend/e2e/.auth/
 frontend/test-results/
 frontend/playwright-report/
+__pycache__/
