@@ -809,3 +809,4 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 
 - **Emcee audience-display control (2026-11-11):** emcee stations get a "Screens" tab (`display` screen) on `/station/<slug>` with big buttons (Results, Rankings, Skills rankings, Schedule, Match preview, In match, Alliance selection, Elimination bracket, Skills, Season, Logo, Blank) that switch the VEX TM audience display via `POST /api/v1/public/stations/{slug}/audience-display`. Display values come from Match Control's list; the exact TM enum for results (`MATCH_RESULTS`) is unverified against a live TM.
 - **Hero fill (2026-11-11):** the homepage hero image fills the screen with `background-size: cover` (cropped to fit, never stretched).
+- **Hero full-bleed (2026-11-11):** the homepage hero breaks out of the 1100px content column to the full viewport width (`width: 100vw`) so the image fills the screen.

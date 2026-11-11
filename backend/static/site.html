@@ -60,12 +60,13 @@
   img, iframe { max-width: 100%; } main, .card { overflow-wrap: anywhere; } td, th { overflow-wrap: normal; }
   nav a, .tabs button, select, input, .btn { min-height: 40px; }
   nav a, .btn { display: inline-flex; align-items: center; }
-  .hero { min-height: calc(100vh - 3.4rem); min-height: calc(100dvh - 3.4rem); background-size: cover; background-position: center; background-repeat: no-repeat; } /* fills the screen, keeps the photo's proportions (cropped, never stretched) */
+  .hero { min-height: calc(100vh - 3.4rem); min-height: calc(100dvh - 3.4rem); background-size: cover; background-position: center; background-repeat: no-repeat; width: 100vw; margin-left: calc(50% - 50vw); margin-right: 0; }
+  body { overflow-x: clip; } /* fills the screen, keeps the photo's proportions (cropped, never stretched) */
   @media (max-width: 640px) {
     .bar { padding: .5rem .75rem; gap: .35rem .6rem; } .bar h1 { font-size: 1rem; flex-basis: 100%; }
     nav { flex-wrap: nowrap; overflow-x: auto; width: 100%; -webkit-overflow-scrolling: touch; scrollbar-width: none; } nav::-webkit-scrollbar { display: none; }
     nav a { white-space: nowrap; padding: .4rem .75rem; }
-    main { padding: .75rem; } .hero { margin: -.75rem -.75rem 0; padding: 1.5rem 1rem; }
+    main { padding: .75rem; } .hero { margin-top: -.75rem; padding: 1.5rem 1rem; }
     .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
     .vids, .clips { grid-template-columns: 1fr; }
     table { font-size: .85rem; } th, td { padding: .4rem .5rem; white-space: nowrap; }
