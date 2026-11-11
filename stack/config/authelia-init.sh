@@ -39,10 +39,10 @@ authentication_backend:
 access_control:
   default_policy: one_factor
   rules:
-    - domain: lighting.$base
+    - domain: ["lighting.$base", "lights.$base"]
       policy: one_factor
       subject: ["group:qecomp-admin"]
-    - domain: lighting.$base
+    - domain: ["lighting.$base", "lights.$base"]
       policy: deny
 session:
   cookies:

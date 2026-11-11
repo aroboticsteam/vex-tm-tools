@@ -160,7 +160,7 @@ configs:
             service: lldap
             tls: {}
           lighting:
-            rule: "Host(`lighting.${BASE_DOMAIN:-vex.localhost}`)"
+            rule: "Host(`lighting.${BASE_DOMAIN:-vex.localhost}`) || Host(`lights.${BASE_DOMAIN:-vex.localhost}`)"
             entryPoints: [websecure]
             middlewares: [authelia]
             service: lighting
@@ -207,7 +207,7 @@ configs:
             entryPoints: [web]
             service: lldap
           lighting-web:
-            rule: "Host(`lighting.${BASE_DOMAIN:-vex.localhost}`)"
+            rule: "Host(`lighting.${BASE_DOMAIN:-vex.localhost}`) || Host(`lights.${BASE_DOMAIN:-vex.localhost}`)"
             entryPoints: [web]
             middlewares: [authelia]
             service: lighting
