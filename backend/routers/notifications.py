@@ -126,7 +126,7 @@ async def subscribe_team(
     sub.room_slug, sub.user_subject, sub.categories = None, None, body.categories
     db.add_all(PushSubscriptionTeam(subscription_id=sub.id, team_number=t) for t in body.teams)
     await db.commit()
-    return SubscriptionStatus(subscribed=True, teams=body.teams, categories=body.categories)
+    return SubscriptionStatus(subscribed=True, teams=sorted(body.teams), categories=body.categories)  # same order as /status
 
 
 @router.post("/public/push/status", response_model=SubscriptionStatus)
