@@ -1,0 +1,157 @@
+# Core: secrets, Postgres, Redis, Garage (S3), migrations and the app.
+# Part of compose.stack.yml (see its header for configuration).
+
+x-app-image: &app-image ${TMTOOLS_IMAGE:-ghcr.io/aroboticsteam/vex-tm-tools:backend}
+
+x-app-env: &app-env
+  POSTGRES_DSN: postgresql+asyncpg://qecomp:qecomp@postgres:5432/qecomp
+  REDIS_URL: redis://redis:6379/0
+  S3_ENDPOINT_URL: http://garage:3900
+  S3_PUBLIC_ENDPOINT_URL: https://s3.${BASE_DOMAIN:-vex.localhost}
+  OIDC_ISSUER_URL: https://auth.${BASE_DOMAIN:-vex.localhost}
+  OIDC_CLIENT_ID: qecomp
+  OIDC_GROUPS_CLAIM: groups
+  # System roots + the stack's self-signed cert + EXTRA_CA_FILE (built by
+  # cert-init) so the backend can reach Authelia/S3 and the internet over HTTPS.
+  SSL_CERT_FILE: /certs/ca-bundle.pem
+  S3_BUCKET: qecomp
+  S3_REGION: us-east-1
+  # Web Push (optional; leave empty to disable). Generate with py_vapid.
+  VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+  VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+  VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+  PUBLIC_BASE_URL: https://tmtools.${BASE_DOMAIN:-vex.localhost}
+  APP_PORT: "8000"
+
+services:
+  secrets-init:
+    image: *app-image
+    pull_policy: always
+    user: root
+    environment:
+      ADMIN_LOCAL_PASSWORD: ${ADMIN_LOCAL_PASSWORD:-}
+    entrypoint: ["python", "/gen/gen-secrets.py"]
+    volumes:
+      - secrets:/secrets
+    restart: "no"
+    configs:
+      - source: cfg_gen_secrets
+        target: /gen/gen-secrets.py
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: qecomp
+      POSTGRES_PASSWORD: qecomp
+      POSTGRES_DB: qecomp
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qecomp -d qecomp"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  garage:
+    image: dxflrs/garage:v1.1.0
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+    volumes:
+      - secrets:/secrets:ro
+      - garage_meta:/var/lib/garage/meta
+      - garage_data:/var/lib/garage/data
+    restart: unless-stopped
+    configs:
+      - source: cfg_garage
+        target: /etc/garage.toml
+
+  garage-init:
+    image: alpine:3.20
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+      garage:
+        condition: service_started
+    environment:
+      S3_BUCKET: qecomp
+    entrypoint: ["sh", "/gen/garage-init.sh"]
+    volumes:
+      - secrets:/secrets:ro
+    restart: "no"
+    configs:
+      - source: cfg_garage_init
+        target: /gen/garage-init.sh
+
+  migrate:
+    image: *app-image
+    depends_on:
+      postgres:
+        condition: service_healthy
+      secrets-init:
+        condition: service_completed_successfully
+    environment: *app-env
+    entrypoint: ["sh", "-c", ". /secrets/env && alembic upgrade head"]
+    volumes:
+      - secrets:/secrets:ro
+    restart: "no"
+
+  app:
+    image: *app-image
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      garage-init:
+        condition: service_completed_successfully
+      cert-init:
+        condition: service_completed_successfully
+      authelia:
+        condition: service_started
+    environment: *app-env
+    entrypoint:
+      - sh
+      - -c
+      - ". /secrets/env && exec uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=*"
+    volumes:
+      - secrets:/secrets:ro
+      - certs:/certs:ro
+    ports:
+      - "3000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  secrets:
+  postgres_data:
+  redis_data:
+  garage_meta:
+  garage_data:
+
+configs:
+  cfg_gen_secrets:
+    file: ./config/gen-secrets.py
+  cfg_garage:
+    file: ./config/garage.toml
+  cfg_garage_init:
+    file: ./config/garage-init.sh
