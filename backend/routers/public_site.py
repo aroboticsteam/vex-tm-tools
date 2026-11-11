@@ -32,7 +32,6 @@ from backend.models.team_clip import TeamClip
 from backend.modules.media import s3
 from backend.modules.notifications.logic import ScheduledMatch, match_key, parse_schedule
 from backend.modules.site import leaderboards as lb
-from backend.modules.site.checklist import checklist_for
 from backend.routers.team_clips import clip_urls_for
 
 logger = logging.getLogger(__name__)
@@ -260,17 +259,23 @@ def _programme(matches: list[ScheduledMatch]) -> str | None:
 
 
 def _match_json(
-    division: str, m: ScheduledMatch, recordings: dict[str, str] | None = None, template: str | None = None
+    division: str,
+    m: ScheduledMatch,
+    recordings: dict[str, str] | None = None,
+    template: str | None = None,
+    programme: str | None = None,
 ) -> dict[str, Any]:
     return {
         "recording_url": _recording_url(division, m, recordings or {}, template),
         "division": division,
+        "programme": programme,
         "label": m.label,
         "state": m.state,
         "scheduled_at": m.time_scheduled,
         "red": list(m.red),
         "blue": list(m.blue),
-        "score": list(m.final_score) if m.final_score else None,
+        # An unplayed match has a TM score of 0-0: only show it once scored.
+        "score": list(m.final_score) if m.final_score and m.scored else None,
         "scored": m.scored,
     }
 
@@ -301,6 +306,9 @@ async def overview(
         "map": await _public_map(config.get("map")),
         "presented_by": _text(config.get("presented_by"), 200),
         "bus_tracker": _public_bus_tracker(config.get("bus_tracker")),
+        "hero": {
+            "image_url": await _image_url(config.get("hero_image_key")) or safe_image_url(config.get("hero_image_url"))
+        },
     }
 
 
@@ -334,10 +342,13 @@ async def event(
     for p in profiles:
         stats = _stats(p)
         ranking = stats.get("ranking") if isinstance(stats.get("ranking"), dict) else None
-        if ranking and _num(ranking.get("rank")) is not None:
+        played = _num(ranking.get("numMatches")) if ranking else None
+        # Before any match is played TM ranks everyone 0-0: not worth showing.
+        if ranking and _num(ranking.get("rank")) is not None and played != 0:
             rankings.append(
                 {
                     "rank": ranking["rank"],
+                    "played": played,
                     "team": p.team_number,
                     "team_name": names.get(p.team_number),
                     "division": stats.get("division_id"),
@@ -378,9 +389,10 @@ async def event(
             await db.execute(select(AgendaItem).order_by(AgendaItem.scope, AgendaItem.position, AgendaItem.start_time))
         ).scalars()
     ]
+    programmes = {d: _programme(ms) for d, ms in schedules.items()}
     return {
-        "divisions": {d: {"programme": _programme(ms)} for d, ms in schedules.items()},
-        "matches": [_match_json(d, m, recordings, template) for d, m in all_matches],
+        "divisions": {d: {"programme": pr} for d, pr in programmes.items()},
+        "matches": [_match_json(d, m, recordings, template, programmes.get(d)) for d, m in all_matches],
         "rankings": rankings,
         "skills": skills,
         "agenda": agenda,
@@ -406,12 +418,12 @@ async def team(
     skills = _skills_entry(stats) or {}
     recordings = await _recordings(db)
     template = _recording_template(await _site_config(db))
-    schedule = [
-        _match_json(d, m, recordings, template)
-        for d, ms in (await _schedules(redis)).items()
-        for m in ms
-        if number in m.teams
-    ]
+    schedules = await _schedules(redis)
+    programmes = {d: _programme(ms) for d, ms in schedules.items()}
+    schedule = [_match_json(d, m, recordings, template, programmes.get(d)) for d, ms in schedules.items() for m in ms if number in m.teams]
+    division = stats.get("division_id")
+    programme = programmes.get(str(division)) if division is not None else None
+    programme = programme or next((pr for pr in programmes.values() if pr), None)
     schedule.sort(key=lambda m: (m["scheduled_at"] is None, m["scheduled_at"] or 0))
     urls = (await clip_urls_for(db, [number], {number: profile}))[number]
     clip_rows = {
@@ -449,9 +461,37 @@ async def team(
             "award_list": [a for a in (stats.get("awards") or []) if isinstance(a, dict)][:50],
         },
         "schedule": schedule,
+        "programme": programme,
         "clips": {"bot": urls.get("bot"), "team": urls.get("team")},
-        "checklist": checklist_for(profile, clip_rows),
+        "downloads": await _clip_downloads(number, profile, clip_rows),
     }
+
+
+async def _clip_downloads(
+    number: str, profile: TeamProfile, clips: dict[str, TeamClip]
+) -> dict[str, dict[str, str] | None]:
+    """The team's own video files as save-as downloads: the original upload when
+    it still exists (a normal mp4/mov), else the processed clip."""
+    labels = {"bot": "360", "team": "team"}
+    out: dict[str, dict[str, str] | None] = {}
+    for kind, label in labels.items():
+        clip = clips.get(kind)
+        key = None
+        if clip is not None and clip.status == "DONE":
+            key = clip.raw_s3_key or clip.processed_s3_key
+        if key is None and kind == "bot" and profile.video_360_s3_key and profile.video_processing_status == "DONE":
+            key = profile.raw_video_s3_key or profile.video_360_s3_key
+        if not key:
+            out[kind] = None
+            continue
+        ext = key.rsplit(".", 1)[-1].lower() if "." in key.rsplit("/", 1)[-1] else "mp4"
+        name = f"{number}-{label}.{ext if ext.isalnum() and len(ext) <= 5 else 'mp4'}"
+        try:
+            out[kind] = {"url": await s3.generate_presigned_url(key, expires_in=_IMAGE_URL_TTL, download_name=name), "name": name}
+        except Exception:
+            logger.warning("Could not presign %s download for %s", kind, number, exc_info=True)
+            out[kind] = None
+    return out
 
 
 @router.get("/livestreams")
