@@ -49,11 +49,7 @@ async def upload_site_image(
     except ProcessingError as exc:
         raise HTTPException(status_code=502, detail="Could not store the image") from exc
     await log_action(db, principal.subject, "upload", "site_image", name, changes={"bytes": len(data)})
-    try:
-        url = await s3.generate_presigned_url(s3.site_image_key(name), expires_in=3600)
-    except Exception:
-        url = None
-    return ImageUploaded(key=name, url=url)
+    return ImageUploaded(key=name, url=f"/api/v1/public/site/image/{name}")
 
 
 class RecordingIn(BaseModel):

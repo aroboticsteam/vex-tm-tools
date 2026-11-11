@@ -17,7 +17,7 @@ from datetime import date
 from typing import Annotated, Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -106,14 +106,14 @@ def _text(value: Any, limit: int = 300) -> str | None:
 
 
 async def _image_url(key: Any) -> str | None:
-    """Presigned URL for an uploaded site image (config stores only its name)."""
+    """Same-origin URL for an uploaded site image (config stores only its name).
+
+    Served by `GET /site/image/{name}` below rather than a presigned S3 URL, so
+    it works wherever the site does (LAN, tunnel, self-signed cert) without the
+    browser having to reach or trust the S3 host."""
     if not isinstance(key, str) or not IMAGE_NAME_RE.match(key):
         return None
-    try:
-        return await s3.generate_presigned_url(s3.site_image_key(key), expires_in=_IMAGE_URL_TTL)
-    except Exception:
-        logger.warning("Could not presign site image %s", key, exc_info=True)
-        return None
+    return f"/api/v1/public/site/image/{key}"
 
 
 def _days_until(value: Any) -> int | None:
@@ -263,6 +263,28 @@ def _match_json(
         "score": list(m.final_score) if m.final_score and m.scored else None,
         "scored": m.scored,
     }
+
+
+_IMAGE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}
+
+
+@router.get("/image/{name}")
+async def site_image(name: str) -> Response:
+    """An uploaded homepage / map / sponsor image (names are random, validated, and the content was image-checked on upload)."""
+    if not IMAGE_NAME_RE.match(name):
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        data = await s3.get_object_bytes(s3.site_image_key(name))
+    except Exception:
+        logger.warning("Could not read site image %s", name, exc_info=True)
+        raise HTTPException(status_code=502, detail="Image storage unavailable")
+    if data is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return Response(
+        content=data,
+        media_type=_IMAGE_TYPES[name.rsplit(".", 1)[1]],
+        headers={"Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.get("/overview")

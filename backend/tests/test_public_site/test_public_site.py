@@ -263,7 +263,7 @@ async def test_overview_hero_image(client):
     async with client.factory() as session:
         session.add(SystemSetting(key="site", value={"hero_image_key": key}))
         await session.commit()
-    assert (await client.get("/api/v1/public/site/overview")).json()["hero"] == {"image_url": f"https://s3.test/site/images/{key}"}
+    assert (await client.get("/api/v1/public/site/overview")).json()["hero"] == {"image_url": f"/api/v1/public/site/image/{key}"}
     async with client.factory() as session:
         row = await session.get(SystemSetting, "site")
         row.value = {"hero_image_url": "https://img.example/h.jpg"}
