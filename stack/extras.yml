@@ -1,0 +1,56 @@
+# Optional profiles: lighting tracker, Mumble voice, Cloudflare tunnel.
+# Part of compose.stack.yml (see its header for configuration).
+
+services:
+  # Lighting tracker (aroboticsteam/lightpoint). Host networking so the
+  # console's ArtPoll broadcast reaches it; the web UI binds to docker0 only and
+  # is published solely through Traefik + Authelia at https://lighting.BASE.
+  lighting:
+    profiles: [lighting]
+    image: ${LIGHTING_IMAGE:-ghcr.io/aroboticsteam/lightpoint:latest}
+    network_mode: host
+    environment:
+      WEB_HOST: ${HOST_GATEWAY_IP:-172.17.0.1}
+      WEB_PORT: "8080"
+    volumes:
+      - ${LIGHTING_CONFIG_DIR:-./lighting-config}:/config
+    restart: unless-stopped
+
+  # Voice for the desks and iPads. LAN only: plain TCP/UDP, not behind Traefik.
+  # Uses Mumble's own self-signed certificate (a trusted one via
+  # traefik-certs-dumper is a follow-up). Data in the `mumble` volume.
+  mumble:
+    profiles: [voice]
+    image: mumblevoip/mumble-server:v1.6.1001
+    environment:
+      MUMBLE_CONFIG_SERVERPASSWORD: ${MUMBLE_PASSWORD:-}
+      MUMBLE_CONFIG_WELCOMETEXT: "QE Comp voice"
+      MUMBLE_CONFIG_USERS: "100"
+    ports:
+      - "64738:64738/tcp"
+      - "64738:64738/udp"
+    volumes:
+      - mumble:/data
+    restart: unless-stopped
+
+  # Cloudflare tunnel for the public competitors page only. Cloudflare terminates
+  # TLS; the tunnel's public hostname (comp.BASE) points at http://traefik:8081,
+  # an entrypoint that serves only the allowlisted /site paths (see cfg_dynamic).
+  cloudflared:
+    profiles: [tunnel]
+    image: cloudflare/cloudflared:2026.10.7
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+      # TCP 7844 instead of QUIC/UDP, friendlier to firewalls.
+      TUNNEL_TRANSPORT_PROTOCOL: http2
+      SSL_CERT_FILE: /certs/ca-bundle.pem
+    volumes:
+      - certs:/certs:ro
+    depends_on:
+      traefik:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  mumble:
