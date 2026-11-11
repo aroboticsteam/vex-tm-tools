@@ -1,0 +1,87 @@
+# Login: LLDAP (users, groups, password changes) and Authelia (OIDC + forward auth).
+# Part of compose.stack.yml (see its header for configuration).
+
+services:
+  authelia-init:
+    image: authelia/authelia:4.39
+    user: root
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+    environment:
+      BASE_DOMAIN: ${BASE_DOMAIN:-vex.localhost}
+    entrypoint: ["sh", "/gen/authelia-init.sh"]
+    volumes:
+      - secrets:/secrets:ro
+      - authelia:/config
+    restart: "no"
+    configs:
+      - source: cfg_authelia_init
+        target: /gen/authelia-init.sh
+
+  # Users, groups and password changes. Authelia authenticates against it.
+  # Admin UI at https://ldap.BASE (log in as `admin`, same password as
+  # /admin_login on first start).
+  lldap:
+    image: lldap/lldap:2026-09-22-alpine
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+    environment:
+      LLDAP_LDAP_BASE_DN: dc=tmtools,dc=local
+      LLDAP_HTTP_URL: https://ldap.${BASE_DOMAIN:-vex.localhost}
+      LLDAP_JWT_SECRET_FILE: /secrets/lldap_jwt
+      LLDAP_KEY_SEED_FILE: /secrets/lldap_key_seed
+      LLDAP_LDAP_USER_PASS_FILE: /secrets/lldap_admin_pass
+    volumes:
+      - secrets:/secrets:ro
+      - lldap:/data
+    healthcheck:
+      test: ["CMD", "/app/lldap", "healthcheck", "--config-file", "/data/lldap_config.toml"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  # Creates the `qecomp-admin` group (the app's `*` role) and puts `admin` in it.
+  lldap-init:
+    image: alpine:3.20
+    depends_on:
+      lldap:
+        condition: service_healthy
+    entrypoint: ["sh", "/gen/lldap-init.sh"]
+    volumes:
+      - secrets:/secrets:ro
+    restart: "no"
+    configs:
+      - source: cfg_lldap_init
+        target: /gen/lldap-init.sh
+
+  authelia:
+    image: authelia/authelia:4.39
+    depends_on:
+      authelia-init:
+        condition: service_completed_successfully
+      lldap-init:
+        condition: service_completed_successfully
+    environment:
+      AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE: /secrets/authelia_jwt
+      AUTHELIA_SESSION_SECRET_FILE: /secrets/authelia_session
+      AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: /secrets/authelia_storage
+      AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET_FILE: /secrets/authelia_oidc_hmac
+      AUTHELIA_AUTHENTICATION_BACKEND_LDAP_PASSWORD_FILE: /secrets/lldap_admin_pass
+    volumes:
+      - secrets:/secrets:ro
+      - authelia:/config
+    restart: unless-stopped
+
+volumes:
+  authelia:
+  lldap:
+
+configs:
+  cfg_lldap_init:
+    file: ./config/lldap-init.sh
+  cfg_authelia_init:
+    file: ./config/authelia-init.sh

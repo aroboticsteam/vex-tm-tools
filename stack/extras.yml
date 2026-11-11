@@ -1,0 +1,76 @@
+# Optional profiles: lighting tracker, Mumble voice, Cloudflare tunnel.
+# Part of compose.stack.yml (see its header for configuration).
+
+services:
+  # Small caching resolver for the site LAN: answers BASE_DOMAIN and *.BASE_DOMAIN
+  # with DNS_ANSWER_IP (this server) and forwards everything else to DNS_UPSTREAM.
+  # Point DHCP/clients at DNS_BIND_IP. Binds that one address only (the tunnel
+  # agent already holds 127.0.0.153:53 on the host).
+  dns:
+    profiles: [dns]
+    image: alpine:3.20
+    entrypoint: ["sh", "-c", "apk add --no-cache dnsmasq >/dev/null && exec dnsmasq --keep-in-foreground --no-daemon --no-resolv --no-hosts --cache-size=1000 --log-queries=extra --log-facility=- --server=${DNS_UPSTREAM:-1.1.1.1} --address=/${BASE_DOMAIN:-vex.localhost}/${DNS_ANSWER_IP:-127.0.0.1}"]
+    ports:
+      - "${DNS_BIND_IP:-127.0.0.1}:53:53/udp"
+      - "${DNS_BIND_IP:-127.0.0.1}:53:53/tcp"
+    cap_add: [NET_ADMIN]
+    restart: unless-stopped
+
+  # Lighting tracker (aroboticsteam/lightpoint). Host networking so the
+  # console's ArtPoll broadcast reaches it; the web UI binds to docker0 only and
+  # is published solely through Traefik + Authelia at https://lighting.BASE.
+  lighting:
+    profiles: [lighting]
+    image: ${LIGHTING_IMAGE:-ghcr.io/aroboticsteam/lightpoint:latest}
+    network_mode: host
+    environment:
+      WEB_HOST: ${HOST_GATEWAY_IP:-172.17.0.1}
+      WEB_PORT: "8080"
+    volumes:
+      - ${LIGHTING_CONFIG_DIR:-./lighting-config}:/config
+    healthcheck:
+      # The image probes 127.0.0.1; the UI is bound to docker0 instead.
+      test: ["CMD-SHELL", "python -c \"import os,urllib.request as u; u.urlopen('http://%s:%s/api/state' % (os.environ['WEB_HOST'], os.environ['WEB_PORT']), timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+    restart: unless-stopped
+
+  # Voice for the desks and iPads. LAN only: plain TCP/UDP, not behind Traefik.
+  # Uses Mumble's own self-signed certificate (a trusted one via
+  # traefik-certs-dumper is a follow-up). Data in the `mumble` volume.
+  mumble:
+    profiles: [voice]
+    image: mumblevoip/mumble-server:v1.6.1001
+    environment:
+      MUMBLE_CONFIG_SERVERPASSWORD: ${MUMBLE_PASSWORD:-}
+      MUMBLE_CONFIG_WELCOMETEXT: "QE Comp voice"
+      MUMBLE_CONFIG_USERS: "100"
+    ports:
+      - "64738:64738/tcp"
+      - "64738:64738/udp"
+    volumes:
+      - mumble:/data
+    restart: unless-stopped
+
+  # Cloudflare tunnel for the public competitors page only. Cloudflare terminates
+  # TLS; the tunnel's public hostname (comp.BASE) points at http://traefik:8081,
+  # an entrypoint that serves only the allowlisted /site paths (see cfg_dynamic).
+  cloudflared:
+    profiles: [tunnel]
+    image: cloudflare/cloudflared:2026.10.7
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+      # TCP 7844 instead of QUIC/UDP, friendlier to firewalls.
+      TUNNEL_TRANSPORT_PROTOCOL: http2
+      SSL_CERT_FILE: /certs/ca-bundle.pem
+    volumes:
+      - certs:/certs:ro
+    depends_on:
+      traefik:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  mumble:
