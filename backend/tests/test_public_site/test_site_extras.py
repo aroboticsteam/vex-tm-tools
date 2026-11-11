@@ -315,6 +315,8 @@ async def test_captured_recordings_appear_on_the_public_site(api):
 
 
 async def test_site_image_is_served_same_origin(api, monkeypatch):
+    from backend.modules.media import s3
+
     key = "c" * 32 + ".png"
     getter = AsyncMock(side_effect=lambda k: PNG if k == f"site/images/{key}" else None)
     monkeypatch.setattr(s3, "get_object_bytes", getter)

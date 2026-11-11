@@ -10,6 +10,7 @@ setup('sign in as admin_local', async ({ page }) => {
   await page.getByRole('button', { name: 'Log in' }).click();
   await expect(page.locator('body')).toContainText('"ok":true');
   await page.goto('/');
-  await expect(page.getByRole('link', { name: 'Button Pages' })).toBeVisible();
+  await page.getByRole('button', { name: 'Production' }).click(); // navbar links live in dropdown groups
+  await expect(page.getByRole('menuitem', { name: 'Button Pages' })).toBeVisible();
   await page.context().storageState({ path: 'e2e/.auth/admin.json' });
 });

@@ -804,3 +804,4 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 - **Site image fix (2026-11-11):** uploaded hero/map/sponsor images are now served same-origin via `GET /api/v1/public/site/image/{name}` instead of presigned S3 URLs (the self-signed `s3.` host made them fail to load in browsers); `s3.get_object_bytes` added.
 
 - **Mobile pass (2026-11-11):** admin navbar collapses to a hamburger below `lg` with all groups expanded in a panel; admin form grids stack to one column on phones, tab rows scroll horizontally, tables scroll inside their card, modals nearly full-width; team site (`site.html`) gets phone rules (`dvh` hero, scrollable nav/tables, 16px inputs, 40px tap targets).
+- **CI fix (2026-11-11):** e2e navbar assertions now open the Production dropdown; image-serving test imports `s3`.

@@ -25,6 +25,7 @@ test('signing in with the right password opens the console', async ({ page }) =>
   await page.getByRole('button', { name: 'Log in' }).click();
   await expect(page.locator('body')).toContainText('"ok":true');
   await page.goto('/');
-  await expect(page.getByRole('link', { name: 'Comms' })).toBeVisible();
+  await page.getByRole('button', { name: 'Production' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Comms' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 });
