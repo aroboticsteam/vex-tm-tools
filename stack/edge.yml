@@ -66,6 +66,11 @@ configs:
       entryPoints:
         web:
           address: ":80"
+          # The homelab ingress (backup path, over the tailnet) terminates TLS
+          # and forwards plain http with X-Forwarded-Proto: https; Authelia and
+          # the app need to see that. Fine here: this port is LAN/tailnet only.
+          forwardedHeaders:
+            insecure: true
           transport: &transport
             respondingTimeouts:
               # Uploads (multi-GB videos) and WebSockets must not be cut off.
@@ -167,7 +172,7 @@ configs:
           # Tunnel origin (plain http; Cloudflare terminates TLS).
           public-root:
             rule: "Host(`comp.${BASE_DOMAIN:-vex.localhost}`) && Path(`/`)"
-            entryPoints: [public]
+            entryPoints: [public, web]
             middlewares: [comp-root]
             service: noop@internal
             priority: 100
@@ -175,9 +180,37 @@ configs:
             rule: >-
               Host(`comp.${BASE_DOMAIN:-vex.localhost}`) &&
               (Path(`/site`) || Path(`/site/leaderboard`) || PathPrefix(`/api/v1/public/site/`))
-            entryPoints: [public]
+            entryPoints: [public, web]
             service: app
             priority: 100
+          public-block-http:
+            rule: "Host(`comp.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [web]
+            service: noop@internal
+            priority: 10
+          # The other named hosts on plain :80, for the homelab ingress backup
+          # path (it forwards Host unchanged). Same services as the https routers.
+          app-web:
+            rule: "Host(`tmtools.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [web]
+            service: app
+          authelia-web:
+            rule: "Host(`auth.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [web]
+            service: authelia
+          s3-web:
+            rule: "Host(`s3.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [web]
+            service: garage-s3
+          ldap-web:
+            rule: "Host(`ldap.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [web]
+            service: lldap
+          lighting-web:
+            rule: "Host(`lighting.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [web]
+            middlewares: [authelia]
+            service: lighting
           # Same on the LAN (https).
           public-root-lan:
             rule: "Host(`comp.${BASE_DOMAIN:-vex.localhost}`) && Path(`/`)"
