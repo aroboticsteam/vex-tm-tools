@@ -211,6 +211,14 @@ configs:
             entryPoints: [web]
             middlewares: [authelia]
             service: lighting
+          # Temporary unauthenticated "secret URL" for the lighting tracker: the
+          # unguessable host in LIGHTING_PUBLIC_HOST (set in the server .env, not
+          # in git) is the only protection. Reached via the homelab ingress, which
+          # rewrites nothing; disabled while the variable is unset.
+          lighting-direct:
+            rule: "Host(`${LIGHTING_PUBLIC_HOST:-lighting-direct.invalid}`)"
+            entryPoints: [web]
+            service: lighting
           # Same on the LAN (https).
           public-root-lan:
             rule: "Host(`comp.${BASE_DOMAIN:-vex.localhost}`) && Path(`/`)"

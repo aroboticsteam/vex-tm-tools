@@ -41,6 +41,8 @@
 #   VAPID_PRIVATE_KEY / VAPID_PUBLIC_KEY / VAPID_SUBJECT   Web Push keys (optional).
 #   DNS_BIND_IP / DNS_ANSWER_IP / DNS_UPSTREAM   `--profile dns` resolver: LAN address to listen on,
 #                          address answered for BASE_DOMAIN and *.BASE_DOMAIN, upstream (1.1.1.1).
+#   LIGHTING_PUBLIC_HOST   a temporary unguessable hostname (e.g. abc123def456.vmd1.dev) that reaches the
+#                          lighting tracker with NO login via the homelab ingress; unset = disabled.
 #   LIGHTING_IMAGE         default ghcr.io/aroboticsteam/lightpoint:latest
 #   LIGHTING_CONFIG_DIR    host dir with fixtures.json for `--profile lighting`,
 #                          writable by uid 1000 (default ./lighting-config).
