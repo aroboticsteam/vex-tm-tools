@@ -75,7 +75,7 @@ export function TimerEditorModal({
           <Label>Display Name</Label>
           <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <Label>Field Set ID</Label>
             <Input type="number" value={fieldSetId} onChange={(e) => setFieldSetId(e.target.value)} />

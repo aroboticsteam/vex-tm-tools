@@ -589,7 +589,7 @@ function AgendaModal({
   return (
     <Modal open={editing !== null} onClose={onClose} title={existing ? 'Edit agenda item' : `New ${scope} agenda item`}>
       <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div><Label>Start (HH:MM)</Label><Input placeholder="09:15" value={start} onChange={(e) => setStart(e.target.value)} /></div>
           <div><Label>End (optional)</Label><Input placeholder="09:45" value={end} onChange={(e) => setEnd(e.target.value)} /></div>
         </div>

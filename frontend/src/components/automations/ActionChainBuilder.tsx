@@ -134,7 +134,7 @@ export function ActionChainBuilder({ onYamlChange }: { onYamlChange: (yamlText: 
           </div>
 
           {item.kind === 'service' && (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
                 <Label>Service (domain.service)</Label>
                 <Input value={item.service} onChange={(e) => update(item.key, { service: e.target.value })} placeholder="atem.switch_input" />
@@ -163,7 +163,7 @@ export function ActionChainBuilder({ onYamlChange }: { onYamlChange: (yamlText: 
           )}
 
           {item.kind === 'script' && (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
                 <Label>Script name</Label>
                 <Input value={item.scriptName} onChange={(e) => update(item.key, { scriptName: e.target.value })} />

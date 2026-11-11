@@ -57,7 +57,7 @@ export function VideoUploader({ teamNumber }: { teamNumber: string }) {
             <Label>Robot video (.mp4 / .mov)</Label>
             <Input type="file" accept=".mp4,.mov,video/mp4,video/quicktime" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <Label>Key Colour</Label>
               <input

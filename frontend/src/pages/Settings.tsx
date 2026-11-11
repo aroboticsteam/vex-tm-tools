@@ -233,7 +233,7 @@ export function SettingsPage() {
           <h2 className="mb-3 mt-5 text-sm font-semibold uppercase tracking-wide text-vmd-textMuted">
             Chroma Key Defaults
           </h2>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <Label>Colour</Label>
               <input
@@ -308,7 +308,7 @@ export function SettingsPage() {
               <Label>Enabled</Label>
               <Toggle checked={teamAlerts} onChange={setTeamAlerts} disabled={!canEdit} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label>Alert when N matches away (0 = off)</Label>
                 <Input
@@ -347,7 +347,7 @@ export function SettingsPage() {
               <Label>Announce agenda items (lunch, finals…) to all rooms</Label>
               <Toggle checked={agendaEnabled} onChange={setAgendaEnabled} disabled={!canEdit} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label>Default announcement lead (minutes)</Label>
                 <Input
@@ -526,6 +526,7 @@ function ApiKeysSection({ canEdit }: { canEdit: boolean }) {
         )}
       </div>
       <Card>
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs uppercase text-vmd-textSubtle">
@@ -556,6 +557,7 @@ function ApiKeysSection({ canEdit }: { canEdit: boolean }) {
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
 
       <Modal
@@ -581,7 +583,7 @@ function ApiKeysSection({ canEdit }: { canEdit: boolean }) {
             </div>
             <div>
               <Label>Permissions</Label>
-              <div className="grid grid-cols-2 gap-1 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-sm">
                 {ALL_PERMISSIONS.map((p) => (
                   <label key={p} className="flex items-center gap-1.5">
                     <input type="checkbox" checked={permissions.includes(p)} onChange={() => togglePermission(p)} />
