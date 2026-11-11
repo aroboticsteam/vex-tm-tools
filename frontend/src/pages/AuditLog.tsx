@@ -93,6 +93,7 @@ export function AuditLogPage() {
           <p className="text-sm text-vmd-textSubtle">No audit entries match these filters.</p>
         ) : (
           <>
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase text-vmd-textSubtle">
@@ -127,6 +128,7 @@ export function AuditLogPage() {
                 ))}
               </tbody>
             </table>
+            </div>
             <div className="mt-3 flex items-center justify-between">
               <span className="text-xs text-vmd-textSubtle">
                 Showing {(filters.offset ?? 0) + 1}–{(filters.offset ?? 0) + entries.length}

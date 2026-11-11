@@ -17,14 +17,14 @@ export function Modal({
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-2 sm:p-4"
       onClick={onClose}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`vmd-card max-h-[85vh] w-full ${wide ? 'max-w-3xl' : 'max-w-md'} overflow-y-auto`}
+        className={`vmd-card max-h-[92dvh] sm:max-h-[85vh] w-full ${wide ? 'max-w-3xl' : 'max-w-md'} overflow-y-auto`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">

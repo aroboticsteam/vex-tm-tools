@@ -97,7 +97,7 @@ export function OverlaysPage() {
               {previewing === overlay.entity_id && (
                 <div className="mt-3 rounded-lg border border-vmd-border bg-black p-4">
                   {preview?.teams && preview.teams.length > 0 ? (
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {preview.teams.map((team) => (
                         <div key={team} className="rounded border border-vmd-border p-2 text-center text-sm">
                           {team}

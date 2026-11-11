@@ -243,6 +243,7 @@ function AutomationHistoryPanel({ automationId }: { automationId: string }) {
         <p className="text-sm text-vmd-textSubtle">No executions recorded yet.</p>
       )}
       {runs && runs.length > 0 && (
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs uppercase text-vmd-textSubtle">
@@ -280,6 +281,7 @@ function AutomationHistoryPanel({ automationId }: { automationId: string }) {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

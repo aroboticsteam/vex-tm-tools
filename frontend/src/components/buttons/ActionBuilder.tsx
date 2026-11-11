@@ -54,7 +54,7 @@ export function ActionBuilder({ value, onChange }: { value: string; onChange: (y
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
-        <div className="flex gap-1.5" role="tablist" aria-label="Action editor mode">
+        <div className="flex overflow-x-auto gap-1.5" role="tablist" aria-label="Action editor mode">
           <Button variant={mode === 'visual' ? 'primary' : 'secondary'} onClick={showVisual} role="tab" aria-selected={mode === 'visual'}>
             Visual
           </Button>
@@ -196,7 +196,7 @@ function ServiceFields({ step, update }: { step: Extract<Step, { kind: 'service'
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <Label>Integration</Label>
           <Select value={step.target} onChange={(e) => pickIntegration(e.target.value)} aria-label="Integration">
@@ -302,7 +302,7 @@ function ScriptFields({ step, update }: { step: Extract<Step, { kind: 'script' }
 function SpotlightFields({ step, update }: { step: Extract<Step, { kind: 'spotlight' }>; update: (patch: Partial<Step>) => void }) {
   const { data: overlays = [] } = useOverlays();
   return (
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <div>
         <Label>Team (blank = back to the match view)</Label>
         <Input value={step.team} onChange={(e) => update({ team: e.target.value })} placeholder="1234A" aria-label="Spotlight team" />

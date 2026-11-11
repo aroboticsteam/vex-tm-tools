@@ -10,7 +10,7 @@ export function PageLayout({ children }: { children: ReactNode }) {
       <Navbar />
       <ReconnectingBanner />
       <RedisWarningBanner />
-      <main className="mx-4 mt-6 lg:mx-8">{children}</main>
+      <main className="mx-3 mt-4 sm:mx-4 sm:mt-6 lg:mx-8">{children}</main>
       <ToastContainer />
     </div>
   );

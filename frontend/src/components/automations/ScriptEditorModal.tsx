@@ -60,7 +60,7 @@ export function ScriptEditorModal({
           <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
 
-        <div className="flex gap-2 border-b border-vmd-border">
+        <div className="flex overflow-x-auto gap-2 border-b border-vmd-border">
           {(['builder', 'yaml'] as const).map((t) => (
             <button
               key={t}

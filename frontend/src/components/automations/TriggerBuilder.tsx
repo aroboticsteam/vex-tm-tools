@@ -56,7 +56,7 @@ export function TriggerBuilder({ onYamlChange }: { onYamlChange: (yamlText: stri
               <Trash2 size={14} />
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
               <Label>Entity ID</Label>
               <Input value={item.entityId} onChange={(e) => update(item.key, { entityId: e.target.value })} placeholder="vex_tm.division_1" />

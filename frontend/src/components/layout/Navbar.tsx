@@ -18,6 +18,8 @@ import {
   Activity,
   DoorOpen,
   ChevronDown,
+  Menu,
+  X,
   Clapperboard,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -155,6 +157,9 @@ function NavDropdown({ group }: { group: NavGroup }) {
 }
 
 export function Navbar() {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const { pathname } = useLocation();
+  useEffect(() => setMobileOpen(false), [pathname]);
   const subject = useAuthStore((s) => s.subject);
   const clearAuth = useAuthStore((s) => s.clear);
   const canViewDebug = usePermission('settings:edit');
@@ -175,9 +180,9 @@ export function Navbar() {
   });
 
   return (
-    <nav className="vmd-navbar mx-4 mt-4 flex flex-wrap items-center gap-1 lg:mx-8">
+    <nav className="vmd-navbar mx-3 mt-3 sm:mx-4 sm:mt-4 flex flex-wrap items-center gap-1 lg:mx-8">
       <span className="mr-4 text-sm font-semibold tracking-wide text-vmd-textStrong">TMTools</span>
-      <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+      <div className="hidden flex-1 flex-wrap items-center gap-x-3 gap-y-1 lg:flex">
         <NavLink
           to={DASHBOARD_ITEM.to}
           end
@@ -192,16 +197,55 @@ export function Navbar() {
       </div>
       <div className="ml-auto flex items-center gap-2 pl-2 text-xs text-vmd-textSubtle">
         <StaffPushToggle />
-        {subject && <span>{subject}</span>}
+        {subject && <span className="hidden sm:inline">{subject}</span>}
         <button
           onClick={() => logoutMutation.mutate()}
           className="navbar-anim-link rounded-lg px-1.5 py-1.5"
           title="Log out"
         >
           <LogOut size={18} className="text-vmd-textMuted" />
-          <span className="nav-label">Log out</span>
+          <span className="nav-label hidden sm:inline">Log out</span>
+        </button>
+        <button
+          type="button"
+          className="navbar-anim-link rounded-lg px-1.5 py-1.5 lg:hidden"
+          aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={mobileOpen}
+          onClick={() => setMobileOpen((o) => !o)}
+        >
+          {mobileOpen ? <X size={22} /> : <Menu size={22} />}
         </button>
       </div>
+      {mobileOpen && (
+        <div className="mt-2 flex max-h-[75dvh] w-full flex-col gap-3 overflow-y-auto border-t border-white/10 pt-3 lg:hidden">
+          <NavLink
+            to={DASHBOARD_ITEM.to}
+            end
+            className={({ isActive }) => `navbar-anim-link rounded-md px-2 py-2.5 ${isActive ? 'active bg-white/10' : ''}`}
+          >
+            <DASHBOARD_ITEM.icon size={18} className="text-vmd-textMuted" />
+            <span className="nav-label">{DASHBOARD_ITEM.label}</span>
+          </NavLink>
+          {groups.map((g) => (
+            <div key={g.label}>
+              <div className="px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-vmd-textSubtle">{g.label}</div>
+              <div className="grid grid-cols-1 gap-0.5 min-[420px]:grid-cols-2">
+                {g.items.map(({ to, label, icon: ItemIcon }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    className={({ isActive }) => `navbar-anim-link rounded-md px-2 py-2.5 ${isActive ? 'active bg-white/10' : ''}`}
+                  >
+                    <ItemIcon size={18} className="text-vmd-textMuted" />
+                    <span className="nav-label">{label}</span>
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+          ))}
+          {subject && <div className="px-2 pb-2 text-xs text-vmd-textSubtle sm:hidden">Signed in as {subject}</div>}
+        </div>
+      )}
     </nav>
   );
 }

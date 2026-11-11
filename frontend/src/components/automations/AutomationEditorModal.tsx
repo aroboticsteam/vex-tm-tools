@@ -88,7 +88,7 @@ export function AutomationEditorModal({
   return (
     <Modal open={open} onClose={onClose} title={editing ? `Edit: ${editing.alias}` : 'New Automation'} wide>
       <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <Label>Alias</Label>
             <Input value={alias} onChange={(e) => setAlias(e.target.value)} />
@@ -106,7 +106,7 @@ export function AutomationEditorModal({
           </div>
         </div>
 
-        <div className="flex gap-2 border-b border-vmd-border">
+        <div className="flex overflow-x-auto gap-2 border-b border-vmd-border">
           {(['builder', 'yaml'] as const).map((t) => (
             <button
               key={t}
