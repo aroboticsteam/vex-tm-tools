@@ -22,6 +22,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend import loader
 from backend.core.audit import log_action
 from backend.core.db import async_session_factory
 from backend.core.dependencies import CurrentPrincipal, get_db, get_redis, require_permission
@@ -35,6 +36,7 @@ from backend.modules.notifications.logic import parse_schedule
 from backend.routers.notifications import _rate_limit
 from backend.routers.team_clips import _overlay_team
 from backend.schemas.comms import (
+    AudienceDisplayRequest,
     AgendaBase,
     AgendaImport,
     AgendaImportError,
@@ -84,7 +86,7 @@ MAX_UNACKED_PER_STATION = 50
 
 def screens_for(role: str) -> list[str]:
     base = ["messages", "timer", "agenda_day", "agenda_finals"]
-    return ["messages", "countdown", "timer", "agenda_day", "agenda_finals"] if role == ROLE_EMCEE else base
+    return ["messages", "countdown", "display", "timer", "agenda_day", "agenda_finals"] if role == ROLE_EMCEE else base
 
 
 async def _publish(redis: Any, event_type: str, payload: dict[str, Any]) -> None:
@@ -767,6 +769,35 @@ async def public_next_match(
         scheduled_at=match.time_scheduled,
         red=[info(t) for t in match.red],
         blue=[info(t) for t in match.blue],
+    )
+
+
+@router.post("/api/v1/public/stations/{slug}/audience-display", status_code=204, response_model=None)
+async def set_audience_display(
+    station: StationAccess,
+    body: AudienceDisplayRequest,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[Any, Depends(get_redis)],
+) -> None:
+    """Emcee stations switch what the audience screens show (results, rankings,
+    ...) on the running VEX Tournament Manager integration. Only the one
+    whitelisted service is reachable, and only by emcee-role stations."""
+    if station.role != ROLE_EMCEE:
+        raise HTTPException(status_code=403, detail="Display control is only available to emcee stations")
+    await _rate_limit(request, redis, "station-display")
+    instances = [i for i in loader.get_all_instances() if i.entity_id.startswith("vex_tm.")]
+    if not instances:
+        raise HTTPException(status_code=503, detail="Tournament Manager is not connected")
+    try:
+        for instance in instances:
+            await instance.call_service("set_audience_display", {"display": body.display})
+    except Exception as exc:
+        logger.warning("Audience display change from station %s failed", station.slug, exc_info=True)
+        raise HTTPException(status_code=502, detail="Tournament Manager did not accept the change") from exc
+    await log_action(
+        db, f"station:{station.slug}", "set_audience_display", "integration", instances[0].entity_id,
+        changes={"display": body.display, "station": station.slug},
     )
 
 

@@ -37,6 +37,7 @@ const ROLE_LABEL: Record<StationRole, string> = { emcee: 'Emcees', floor_manager
 const SCREEN_LABEL: Record<CommsScreen, string> = {
   messages: 'Messages',
   countdown: 'Next match countdown (emcees)',
+  display: 'Audience screen controls (emcees)',
   timer: 'Timer',
   agenda_day: 'Day agenda',
   agenda_finals: 'Finals agenda',

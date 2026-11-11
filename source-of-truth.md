@@ -547,7 +547,7 @@ Generated reference: [`docs/API.md`](docs/API.md) and the live `/docs` (Swagger)
 | `/api/v1/comms/presets`, `/api/v1/comms/agenda` (+ `/order`, `/import`, `/{id}`) | presets and agenda |
 | POST `/api/v1/comms/send`, `/screen`, `/timer` | push to stations |
 | GET `/api/v1/comms/inbox`; POST `/inbox/{message_id}/ack`; DELETE `/inbox` | replies from stations |
-| **public:** POST `/api/v1/public/stations/{slug}/unlock`; GET `…/{slug}`, `…/{slug}/agenda`, `…/{slug}/next-match`; POST `…/{slug}/messages` | iPad station pages (slug/access-key/PIN-token credentialed) |
+| **public:** POST `/api/v1/public/stations/{slug}/unlock`; GET `…/{slug}`, `…/{slug}/agenda`, `…/{slug}/next-match`; POST `…/{slug}/audience-display` (emcee role only, 403 otherwise; whitelisted `display`; 503 no TM running, 502 TM refused; rate-limited); POST `…/{slug}/messages` | iPad station pages (slug/access-key/PIN-token credentialed) |
 
 **Button pages** (`buttons:read` list; `buttons:manage` create/update/delete/reorder; `buttons:press` press)
 
@@ -806,3 +806,5 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 - **Mobile pass (2026-11-11):** admin navbar collapses to a hamburger below `lg` with all groups expanded in a panel; admin form grids stack to one column on phones, tab rows scroll horizontally, tables scroll inside their card, modals nearly full-width; team site (`site.html`) gets phone rules (`dvh` hero, scrollable nav/tables, 16px inputs, 40px tap targets).
 - **CI fix (2026-11-11):** e2e navbar assertions now open the Production dropdown; image-serving test imports `s3`.
 - **Site mobile CSS (2026-11-11):** the phone rules for `site.html` (see mobile pass) were missing from #66 and landed in a follow-up.
+
+- **Emcee audience-display control (2026-11-11):** emcee stations get a "Screens" tab (`display` screen) on `/station/<slug>` with big buttons (Results, Rankings, Skills rankings, Schedule, Match preview, In match, Alliance selection, Elimination bracket, Skills, Season, Logo, Blank) that switch the VEX TM audience display via `POST /api/v1/public/stations/{slug}/audience-display`. Display values come from Match Control's list; the exact TM enum for results (`MATCH_RESULTS`) is unverified against a live TM.
