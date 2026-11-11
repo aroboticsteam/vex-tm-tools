@@ -24,7 +24,7 @@ export function usePublicOverview() {
   return useQuery({
     queryKey: ['public-site', 'overview'],
     queryFn: () =>
-      apiFetch<{ map: { image_url: string } | null; sponsors: { name: string | null; logo_url: string | null }[] }>(
+      apiFetch<{ map: { image_url: string } | null; hero?: { image_url: string | null }; sponsors: { name: string | null; logo_url: string | null }[] }>(
         '/api/v1/public/site/overview',
       ),
   });

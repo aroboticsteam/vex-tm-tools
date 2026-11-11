@@ -1,6 +1,6 @@
 # TMTools (QEComp) — Source of Truth
 
-**Last verified against the codebase:** 2026-11-11 (`main` + qerobotics.co.uk stack: split compose, host-based Traefik, self-signed wildcard, LLDAP, lighting, Mumble, tunnel profiles)
+**Last verified against the codebase:** 2026-11-11 (`main` + VEX Events rate-limit fix + #29 mock shapes + team-site feedback pass + qerobotics.co.uk stack: split compose, host-based Traefik, self-signed wildcard, LLDAP, lighting, Mumble, tunnel and dns profiles, Alembic head `d1e2f3a4b5c6`)
 
 This is the single authoritative description of what is in this repository: architecture, decisions, data model, API surface, RBAC, frontend, deployment and tests. It replaces `tm_update_plan.md` (the original v3.0 rewrite plan). Where the old plan and the code disagreed, **the code wins** and this document records the code.
 
@@ -396,7 +396,7 @@ Every integration, timer and overlay instance has a system-wide unique `entity_i
 
 ### 10.5 Rooms and notifications (`modules/notifications/`)
 
-- **Rooms** group teams; each has a public display `/room/<slug>` (optional livestream embed, team list, QR code, live alerts) and a QR-linked `/notify?room=<slug>` page where phones pick teams (from that room) for alerts.
+- **Rooms** group teams; each has a public display `/room/<slug>` (optional livestream embed and team list, live alerts; no QR code on the page itself — the QR image is still served at `/room/<slug>/qr.svg` and shown in the admin Rooms page) and a QR-linked `/notify?room=<slug>` page where phones pick teams (from that room) for alerts.
 - A **leader-only** service reads cached TM schedules and sends: arrival alerts (x matches **and**/or y minutes away), late warnings (`late_minutes`), score alerts (skipping excluded rounds, e.g. finals), and agenda announcements (`announce_lead_minutes`/`agenda_lead_minutes`), de-duplicated via `notification_log`.
 - **Delivery:** Web Push (VAPID, `pywebpush`) to phones and staff; room displays via WS. Per-subscriber categories; failing subscriptions are pruned via `failure_count`.
 - **Broadcasts:** `notifications:broadcast` can message chosen rooms and/or phones. **Staff alerts:** anyone with `notifications:receive` (bell in the navbar, `StaffPushToggle`) gets operator alerts (integration degraded, failover, etc.) and broadcasts.
@@ -415,7 +415,14 @@ Stream-Deck-style pages of buttons (Button Pages admin page, `buttons:*`). Each 
 
 ### 10.8 Public site (`/site`)
 
-Unauthenticated, display-safe team-facing website: overview, event/schedule, teams and team pages, rotating leaderboards and season highlights (`modules/site/leaderboards.py`: UK/world skills, programme labels VIQRC/V5RC), match recordings, livestreams, dashboard highlights. Configured via the `site` setting and the match-recordings admin (`MatchRecordingsCard`). Data comes from the schedule cache and `team_profiles.cached_stats`. Team pages include a `checklist` block (inspection, 360 robot video, team video; `modules/site/checklist.py`, shared with the admin API; a video counts when its processed clip is `DONE`, the bot video also counts a finished legacy 360 upload).
+Unauthenticated, display-safe team-facing website: overview, event/schedule, teams and team pages, rotating leaderboards and season highlights (`modules/site/leaderboards.py`: UK/world skills, programme labels VIQRC/V5RC), match recordings, livestreams. Configured via the `site` setting (Settings → Public website form) and the match-recordings admin (`MatchRecordingsCard`). Data comes from the schedule cache and `team_profiles.cached_stats`. `backend/static/site.html` is a single-file vanilla-JS SPA (hash routes `#home #event #teams #team/<n> #live #map`).
+
+- **Home:** full-viewport hero (the `hero.image_url` photo, or a plain gradient when none) with "Welcome to <title>" over it; scrolling reveals tabs with the top 50 qualification rankings and top 50 skills (from `/event`, linking to team pages), then the next-competition card, links and sponsors. No stat cards or highlight facts. (`/overview` still returns `stats` and `highlights` for other consumers.)
+- **IQ vs VRC:** each match carries `programme` (`iq` when the biggest match has two teams, `vrc` at four or more). IQ shows one "Teams" column ("A & B") and a single score (`score[0]`), no red/blue and no W-L-T anywhere (matches, rankings, team page, season history); VRC keeps red/blue and W-L-T.
+- **Scores:** `score` is `null` until a match is scored (TM reports 0-0 for unplayed matches). Rankings only list teams that have played (`numMatches == 0` is dropped; absent `numMatches` is kept) and carry `played`. Skills rows with no score and no attempts are dropped and carry `tie`. Rankings/skills are sorted by division (numeric order) then rank; the home page's top 50 sorts by rank then division. The team page's average and high score come from TM's ranking row (`avgPoints` / `highScore`), falling back to the match-derived `qual_avg` / `qual_high`.
+- **Team page:** no checklist card (the `checklist` field was removed from the public payload; `modules/site/checklist.py` and `GET /api/v1/teams/checklist` remain for the admin UI). "Videos" section with a preview and a prominent download button per clip (`downloads.bot` / `downloads.team`, `{url, name}`: the original upload when it exists, else the processed clip, presigned with `ResponseContentDisposition: attachment; filename=...` so browsers save it instead of playing it; `s3.generate_presigned_url(..., download_name=)`). Season history is one card per event (qualification rank, average/high score, awards grouped by event; no W-L-T for IQ).
+- **Hero image:** site setting keys `hero_image_key` (uploaded via the Settings "Homepage image" control, `POST /api/v1/site/images`, 32-hex `.png/.jpg/.gif/.webp` name) or `hero_image_url` (plain http(s)); `/overview` returns `hero: {image_url}`.
+- **Removed:** the bus tracker (`bus_tracker` setting, `/overview.bus_tracker`, the `#bus` page/nav item and its Settings section) was dropped at the user's request. A `bus_tracker` key left in a stored `site` setting is ignored (and preserved on save).
 
 ### 10.9 Stream Deck / API keys
 
@@ -548,7 +555,7 @@ Generated reference: [`docs/API.md`](docs/API.md) and the live `/docs` (Swagger)
 
 **Public site (no auth)**
 
-`GET /api/v1/public/site/overview | leaderboards | event | teams | teams/{number} | livestreams`.
+`GET /api/v1/public/site/overview | leaderboards | event | teams | teams/{number} | livestreams`. Team payloads include `programme` and `downloads`; matches include `programme`; `/overview` includes `hero`.
 
 ## 12. WebSockets
 
@@ -771,7 +778,7 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 - **v3.0 plan (2026-07-22):** original `tm_update_plan.md`, FastAPI + Postgres + Redis rewrite with HA, integrations, automations, timers, teams, overlays.
 - **Rewrite delivered** in waves (core → loader/integrations → engine/timers → routers/WS → frontend → scraper/predictor/media), then QA-pass fixes (leader failover, save-time validation, automation reporting, RobotEvents API migration, hot-reload, S3 settings, security audit fixes).
 - **TMTools rebrand** of user-visible text; AGPL-3.0 licence; separate `:backend`/`:frontend` images; Match Control absorbs Field Monitor.
-- **Feature additions (issue/PR):** notifications & rooms (#5), WLED/OSC/PTZ (#7), desk↔iPad comms (#8), public site (#10), button pages (#11), Robot 360 overlays + clip recorder (#1/#12), late warnings & agenda announcements (#22), robot-name opt-in & spotlight (#24), visual button builder (#25), comms secure links/PIN/timers/presence/agenda tools (#27), site extras — leaderboards, recordings, logos, bus tracker (#28), Playwright e2e suite (#30).
+- **Feature additions (issue/PR):** notifications & rooms (#5), WLED/OSC/PTZ (#7), desk↔iPad comms (#8), public site (#10), button pages (#11), Robot 360 overlays + clip recorder (#1/#12), late warnings & agenda announcements (#22), robot-name opt-in & spotlight (#24), visual button builder (#25), comms secure links/PIN/timers/presence/agenda tools (#27), site extras — leaderboards, recordings, logos (#28), Playwright e2e suite (#30).
 - **2026-10-31:** Capture agent `tools/capture_agent/` (#45). `ConnectionManager.start()` now waits for its Redis subscription before returning (events published right after startup were lost); lifespan shutdown clears `app.state.leader`.
 - **2026-10-31:** Analysis desk SPA page (`/analysis`, `api/capture.ts`, `lib/analysis.ts`, navbar entry gated on `analysis:view`).
 - **2026-10-30:** Replay player backend (#41): `modules/capture/replay.py`, `static/replay.html` served at `GET /replay/{id}` (OBS browser source, transparent, `?label=1` caption), `/ws/replay/{id}`, `/api/v1/capture/replay/*`, `replay_command` event.
@@ -790,3 +797,4 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 - **2026-11-09:** Added single-file `compose.stack.yml` (all-in-one Docker stack: ghcr.io app image, Traefik self-signed TLS catch-all, Authelia OIDC, Postgres, Redis, Garage S3, auto-generated secrets).
 - **2026-11-09:** `compose.stack.yml`: OIDC redirect URIs limited to https (plus https://localhost); no http→https redirect on :80 (tried and removed).
 - **2026-11-11:** `compose.stack.yml` moved to flat hostnames under `BASE_DOMAIN` (`PUBLIC_HOST` and the :3901/:9091 entrypoints removed): host-based Traefik routing with the self-signed wildcard, `EXTRA_CA_FILE`, Authelia backed by LLDAP (`lldap`, `lldap-init`, password changes), forward-auth route for the lighting tracker, and `lighting`/`voice`/`tunnel` profiles (lightpoint, Mumble, cloudflared with a path allowlist on an unpublished `public` entrypoint); `gen-secrets.py` now tops up missing secrets. `LIGHTING_PUBLIC_HOST` temporary secret-URL access to the lighting tracker without login. `lights.BASE` added as an alias of `lighting.BASE` (routers and Authelia rule). Named hosts routed on :80 for the homelab backup path (PR vmd1/homelab#398). `comp.BASE` now redirects `/` to `/site` and is allowlisted on the LAN too. Added a `dns` profile (LAN resolver for the event domain). The file is split into `stack/*.yml` + `stack/config/`. Plan in `docs/PLAN_qecomp-server.md`.
+- **2026-11-11:** Team-site feedback pass: IQ shows one Teams column / single score and no W-L-T; unplayed matches have `score: null`; rankings drop 0-match teams (`played`, `tie` added; numeric division sort; team page uses TM's own avg/high); public checklist card removed; team videos shown with download buttons (`downloads`, presigned attachment URLs); season history redesigned (card per event); homepage is a full-screen hero (`hero_image_key`/`hero_image_url`, Settings "Homepage image" control) plus top-50 qualification/skills; the QR panel removed from `room.html`; admin navbar labels always visible (`index.css`). The bus tracker (coach ETA board) was **removed** (see §10.8).

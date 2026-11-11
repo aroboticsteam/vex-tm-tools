@@ -74,7 +74,7 @@ export function Navbar() {
   return (
     <nav className="vmd-navbar mx-4 mt-4 flex flex-wrap items-center gap-1 lg:mx-8">
       <span className="mr-4 text-sm font-semibold tracking-wide text-vmd-textStrong">TMTools</span>
-      <div className="flex flex-1 flex-wrap gap-1">
+      <div className="flex flex-1 flex-wrap gap-x-3 gap-y-1">
         {NAV_ITEMS.filter(({ to }) => to !== '/analysis' || canViewAnalysis).map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}

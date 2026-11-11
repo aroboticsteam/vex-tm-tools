@@ -23,6 +23,21 @@ def _stats(profile: Any) -> dict[str, Any]:
     return profile.cached_stats if isinstance(profile.cached_stats, dict) else {}
 
 
+def live_ranking(stats: dict[str, Any]) -> dict[str, Any] | None:
+    """The team's qualification ranking row, or None when it is not meaningful:
+    missing, unranked, or before the team has played (TM ranks everyone 0-0)."""
+    ranking = stats.get("ranking")
+    if not isinstance(ranking, dict) or _num(ranking.get("rank")) is None:
+        return None
+    return None if _num(ranking.get("numMatches")) == 0 else ranking
+
+
+def division_sort_key(division: Any) -> tuple[int, int, str]:
+    """Numeric divisions in numeric order ("2" before "10"), then the rest by name."""
+    text = str(division)
+    return (0, int(text), text) if text.isdigit() else (1, 0, text)
+
+
 def best_skills(stats: dict[str, Any]) -> dict[str, Any] | None:
     entries = [e for e in (stats.get("skills") or []) if isinstance(e, dict)]
     return min(entries, key=lambda e: _num(e.get("rank")) or 10**9) if entries else None
@@ -41,10 +56,10 @@ def _tournament(profiles: list[Any], limit: int) -> list[dict[str, Any]]:
     rows = []
     for p in profiles:
         stats = _stats(p)
-        ranking = stats.get("ranking") if isinstance(stats.get("ranking"), dict) else {}
-        rank = _num(ranking.get("rank"))
-        if rank is None:
+        ranking = live_ranking(stats)
+        if ranking is None:
             continue
+        rank = ranking["rank"]
         rows.append(
             {
                 **_row_base(p, stats),
@@ -55,7 +70,7 @@ def _tournament(profiles: list[Any], limit: int) -> list[dict[str, Any]]:
                 "avg_points": _num(ranking.get("avgPoints")),
             }
         )
-    rows.sort(key=lambda r: (r["rank"], str(r["division"]), r["team"]))
+    rows.sort(key=lambda r: (r["rank"], division_sort_key(r["division"]), r["team"]))
     return rows[:limit]
 
 
@@ -75,7 +90,7 @@ def _skills(profiles: list[Any], limit: int) -> list[dict[str, Any]]:
                 "prog": _num(entry.get("progHighScore")),
             }
         )
-    rows.sort(key=lambda r: (r["rank"], str(r["division"]), r["team"]))
+    rows.sort(key=lambda r: (r["rank"], division_sort_key(r["division"]), r["team"]))
     return rows[:limit]
 
 
@@ -85,7 +100,7 @@ def _overall(profiles: list[Any], limit: int) -> list[dict[str, Any]]:
     rows = []
     for p in profiles:
         stats = _stats(p)
-        ranking = stats.get("ranking") if isinstance(stats.get("ranking"), dict) else {}
+        ranking = live_ranking(stats) or {}
         entry = best_skills(stats)
         qual = _num(ranking.get("rank"))
         skills = _num(entry.get("rank")) if entry else None

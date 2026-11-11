@@ -211,7 +211,7 @@ async def upload_multipart(local_path: str, s3_key: str) -> None:
     logger.info("Uploaded %s (%d bytes) to s3://%s/%s", local_path, file_size, config.bucket, s3_key)
 
 
-async def generate_presigned_url(s3_key: str, expires_in: int = 900) -> str:
+async def generate_presigned_url(s3_key: str, expires_in: int = 900, download_name: str | None = None) -> str:
     """Generate a pre-signed GET URL for `s3_key`, valid for `expires_in`
     seconds (default 15 minutes, per plan §3.8).
 
@@ -221,15 +221,19 @@ async def generate_presigned_url(s3_key: str, expires_in: int = 900) -> str:
     is typically unresolvable from the browser this URL is ultimately handed
     to. Falls back to `endpoint_url` (correct for public AWS S3, where both
     are the same reachable host).
+
+    With `download_name` the URL answers with `Content-Disposition:
+    attachment`, so browsers save the file under that name (the HTML
+    `download` attribute is ignored for cross-origin links such as this one).
     """
     config = await _resolved_config()
     _require_s3_settings(config)
+    params: dict[str, str] = {"Bucket": config.bucket, "Key": s3_key}
+    if download_name:
+        safe = "".join(c for c in download_name if c.isalnum() or c in "._-") or "download"
+        params["ResponseContentDisposition"] = f'attachment; filename="{safe}"'
     async with _client_ctx(config, config.public_endpoint_url or config.endpoint_url) as s3:
-        return await s3.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": config.bucket, "Key": s3_key},
-            ExpiresIn=expires_in,
-        )
+        return await s3.generate_presigned_url("get_object", Params=params, ExpiresIn=expires_in)
 
 
 async def generate_presigned_put_url(s3_key: str, expires_in: int = 3600, content_type: str | None = None) -> str:

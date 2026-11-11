@@ -13,13 +13,9 @@
   h1 { margin: 0; font-size: 1.6rem; }
   .teams { display: flex; flex-wrap: wrap; gap: .35rem; }
   .chip { background: #1d2230; border: 1px solid #2c3347; border-radius: 999px; padding: .15rem .65rem; font-size: .95rem; }
-  main { display: grid; gap: 1rem; padding: 0 1.5rem 1.5rem; grid-template-columns: minmax(0, 1fr) 260px; align-items: start; }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  main { display: grid; gap: 1rem; padding: 0 1.5rem 1.5rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
   .video { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; }
   .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-  .panel { background: #161a23; border: 1px solid #262c3c; border-radius: 12px; padding: 1rem; text-align: center; }
-  .panel img { width: 100%; max-width: 220px; background: #fff; border-radius: 8px; padding: 6px; }
-  .panel p { margin: .6rem 0 0; font-size: .95rem; color: #aeb6c8; }
   .status { position: fixed; right: .75rem; bottom: .5rem; font-size: .75rem; color: #6b7389; }
   #toasts { position: fixed; top: 1rem; right: 1rem; display: flex; flex-direction: column; gap: .6rem; width: min(380px, calc(100vw - 2rem)); z-index: 10; }
   .toast { background: #1f2638; border: 1px solid #3a4666; border-left: 5px solid #5b9dff; border-radius: 10px; padding: .75rem 1rem;
@@ -40,10 +36,6 @@
 </header>
 <main>
   <section id="stream"></section>
-  <aside class="panel">
-    <img id="qr" alt="QR code to get match alerts on your phone" />
-    <p>Scan to get match alerts for your team on your phone.</p>
-  </aside>
 </main>
 <div id="toasts"></div>
 <div id="modal"><div class="box"><h2 id="modal-title"></h2><p id="modal-msg"></p><button id="modal-ok">Dismiss</button></div></div>
@@ -87,8 +79,6 @@
       }
     } catch (e) { /* retry on next refresh */ }
   }
-
-  document.getElementById('qr').src = '/room/' + encodeURIComponent(SLUG) + '/qr.svg';
 
   function toast(n) {
     var box = el('div', 'toast');
