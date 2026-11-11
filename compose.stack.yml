@@ -39,6 +39,8 @@
 #                          comp.BASE -> http://traefik:8081 set in Cloudflare).
 #   MUMBLE_PASSWORD        server password for `--profile voice`.
 #   VAPID_PRIVATE_KEY / VAPID_PUBLIC_KEY / VAPID_SUBJECT   Web Push keys (optional).
+#   DNS_BIND_IP / DNS_ANSWER_IP / DNS_UPSTREAM   `--profile dns` resolver: LAN address to listen on,
+#                          address answered for BASE_DOMAIN and *.BASE_DOMAIN, upstream (1.1.1.1).
 #   LIGHTING_IMAGE         default ghcr.io/aroboticsteam/lightpoint:latest
 #   LIGHTING_CONFIG_DIR    host dir with fixtures.json for `--profile lighting`,
 #                          writable by uid 1000 (default ./lighting-config).

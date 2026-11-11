@@ -2,6 +2,20 @@
 # Part of compose.stack.yml (see its header for configuration).
 
 services:
+  # Small caching resolver for the site LAN: answers BASE_DOMAIN and *.BASE_DOMAIN
+  # with DNS_ANSWER_IP (this server) and forwards everything else to DNS_UPSTREAM.
+  # Point DHCP/clients at DNS_BIND_IP. Binds that one address only (the tunnel
+  # agent already holds 127.0.0.153:53 on the host).
+  dns:
+    profiles: [dns]
+    image: alpine:3.20
+    entrypoint: ["sh", "-c", "apk add --no-cache dnsmasq >/dev/null && exec dnsmasq --keep-in-foreground --no-daemon --no-resolv --no-hosts --cache-size=1000 --log-queries=extra --log-facility=- --server=${DNS_UPSTREAM:-1.1.1.1} --address=/${BASE_DOMAIN:-vex.localhost}/${DNS_ANSWER_IP:-127.0.0.1}"]
+    ports:
+      - "${DNS_BIND_IP:-127.0.0.1}:53:53/udp"
+      - "${DNS_BIND_IP:-127.0.0.1}:53:53/tcp"
+    cap_add: [NET_ADMIN]
+    restart: unless-stopped
+
   # Lighting tracker (aroboticsteam/lightpoint). Host networking so the
   # console's ArtPoll broadcast reaches it; the web UI binds to docker0 only and
   # is published solely through Traefik + Authelia at https://lighting.BASE.
