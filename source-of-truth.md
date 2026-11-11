@@ -805,3 +805,4 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 
 - **Mobile pass (2026-11-11):** admin navbar collapses to a hamburger below `lg` with all groups expanded in a panel; admin form grids stack to one column on phones, tab rows scroll horizontally, tables scroll inside their card, modals nearly full-width; team site (`site.html`) gets phone rules (`dvh` hero, scrollable nav/tables, 16px inputs, 40px tap targets).
 - **CI fix (2026-11-11):** e2e navbar assertions now open the Production dropdown; image-serving test imports `s3`.
+- **Site mobile CSS (2026-11-11):** the phone rules for `site.html` (see mobile pass) were missing from #66 and landed in a follow-up.
