@@ -14,6 +14,12 @@ services:
       WEB_PORT: "8080"
     volumes:
       - ${LIGHTING_CONFIG_DIR:-./lighting-config}:/config
+    healthcheck:
+      # The image probes 127.0.0.1; the UI is bound to docker0 instead.
+      test: ["CMD-SHELL", "python -c \"import os,urllib.request as u; u.urlopen('http://%s:%s/api/state' % (os.environ['WEB_HOST'], os.environ['WEB_PORT']), timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
     restart: unless-stopped
 
   # Voice for the desks and iPads. LAN only: plain TCP/UDP, not behind Traefik.
