@@ -378,7 +378,7 @@ export function SettingsPage() {
               />
             </div>
             <p className="text-xs text-vmd-textSubtle">
-              Both match-count and time alerts fire when enabled. Rooms and rooms&apos; QR codes are managed on the Rooms page.
+              Both match-count and time alerts fire when enabled. Rooms are managed on the Rooms page; anyone can follow any team from the public /notify page.
               Finals are <code>F</code>; others: <code>QUAL</code>, <code>R16</code>, <code>QF</code>, <code>SF</code>.
             </p>
           </div>

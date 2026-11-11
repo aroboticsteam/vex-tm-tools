@@ -83,9 +83,9 @@ path. To exercise a real OIDC login instead, see
 ## Rooms & notifications
 
 Teams are allocated to **rooms** (Rooms page). Each room has a public display page
-at `/room/<slug>` — an optional livestream embed, the room's teams, a QR code, and live
-alerts — and the QR links phones to `/notify?room=<slug>`, where people pick the teams
-(from that room only) they want match alerts for.
+at `/room/<slug>` — an optional livestream embed, the room's teams, and live
+alerts. Phone notifications are open to everyone: `/notify` lets any visitor pick any
+team(s) and turn on match alerts, with no QR code, room or login.
 
 - **Alerts:** a leader-only service reads the schedule cached by the `vex_tm` integration and
   sends, to the room display and to subscribed phones, a heads-up when a match is *x* matches
@@ -100,7 +100,7 @@ alerts — and the QR links phones to `/notify?room=<slug>`, where people pick t
   broadcasts as push notifications.
 - **Phone push** uses standard Web Push (VAPID). Generate keys once with
   `python tools/generate_vapid_keys.py` and set `VAPID_PRIVATE_KEY` / `VAPID_PUBLIC_KEY`
-  (`VAPID_SUBJECT` and `PUBLIC_BASE_URL`, used in the QR codes, are optional). Without keys push
+  (`VAPID_SUBJECT` is optional). Without keys push
   is off but room displays still work. Works in Chrome/Edge/Firefox and Safari; on iPhone/iPad the
   page must first be added to the Home Screen.
 - Your reverse proxy must route `/room/`, `/notify`, `/notify.webmanifest` and `/sw.js` to the backend

@@ -1,9 +1,9 @@
 """Notifications API (issue #5).
 
-Public (no login — used from phones that scanned a room's QR code):
-  - `GET  /api/v1/public/rooms/{slug}`          room name, stream, teams
+Public (no login, no QR/room/code: anyone can follow any team from `/notify`):
+  - `GET  /api/v1/public/rooms/{slug}`          room name, stream, teams (room display page)
   - `GET  /api/v1/public/push/vapid-key`        key for `pushManager.subscribe`
-  - `POST /api/v1/public/push/subscribe`        follow teams (from a room)
+  - `POST /api/v1/public/push/subscribe`        follow any teams
   - `POST /api/v1/public/push/status|unsubscribe`
 
 The push-service endpoint URL is the only credential a subscriber holds, so
@@ -122,17 +122,11 @@ async def subscribe_team(
     await _rate_limit(request, redis, "push-subscribe")
     if not delivery.push_configured():
         raise HTTPException(status_code=503, detail="Push notifications are not configured on this server")
-    room = await _load_public_room(db, body.room)
-    allowed = set(room.teams)
-    unknown = [t for t in body.teams if t not in allowed]
-    if unknown:
-        raise HTTPException(status_code=422, detail=f"Teams not in this room: {', '.join(unknown)}")
-
     sub = await _upsert_subscription(db, body, kind=KIND_TEAM, user_agent=request.headers.get("user-agent"))
-    sub.room_slug, sub.user_subject, sub.categories = body.room, None, body.categories
+    sub.room_slug, sub.user_subject, sub.categories = None, None, body.categories
     db.add_all(PushSubscriptionTeam(subscription_id=sub.id, team_number=t) for t in body.teams)
     await db.commit()
-    return SubscriptionStatus(subscribed=True, room=body.room, teams=body.teams, categories=body.categories)
+    return SubscriptionStatus(subscribed=True, teams=sorted(body.teams), categories=body.categories)  # same order as /status
 
 
 @router.post("/public/push/status", response_model=SubscriptionStatus)
@@ -157,7 +151,7 @@ async def subscription_status(
             .order_by(PushSubscriptionTeam.team_number)
         )
     ).scalars()
-    return SubscriptionStatus(subscribed=True, room=sub.room_slug, teams=list(teams), categories=sub.categories)
+    return SubscriptionStatus(subscribed=True, teams=list(teams), categories=sub.categories)
 
 
 @router.post("/public/push/unsubscribe", status_code=204, response_model=None)

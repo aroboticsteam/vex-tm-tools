@@ -143,13 +143,13 @@ Team profiles + green-screen video upload pipeline (plan §5.11/§5.13).
 
 ## Notifications (`/api/v1`)
 
-Team-facing endpoints are **public** (no login) — they are used from phones that scanned a room's QR code. They are rate-limited per client IP, and the push endpoint a client registers must belong to a known browser push service (Google/FCM, Mozilla, Apple, Microsoft).
+Team-facing endpoints are **public** (no login) — they are used from the open `/notify` page (no QR code or room needed). They are rate-limited per client IP, and the push endpoint a client registers must belong to a known browser push service (Google/FCM, Mozilla, Apple, Microsoft).
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/v1/public/rooms/{slug}` | Public room info: name, stream URL, team list (used by the room and subscribe pages). |
+| GET | `/api/v1/public/rooms/{slug}` | Public room info: name, stream URL, team list (used by the room display page). |
 | GET | `/api/v1/public/push/vapid-key` | VAPID public key for `pushManager.subscribe`; 503 if push is not configured. |
-| POST | `/api/v1/public/push/subscribe` | Follow teams: `endpoint`, `keys{p256dh,auth}`, `room`, `teams[]`. Teams must belong to the room. Optional `categories[]` (`arrival`, `late`, `score`, `announcement`; omitted = all) lets a subscriber opt out of alert types — broadcasts always get through. Re-posting the same endpoint replaces its team list and categories. |
+| POST | `/api/v1/public/push/subscribe` | Follow teams: `endpoint`, `keys{p256dh,auth}`, `teams[]` (any team numbers; no room or code). Optional `categories[]` (`arrival`, `late`, `score`, `announcement`; omitted = all) lets a subscriber opt out of alert types — broadcasts always get through. Re-posting the same endpoint replaces its team list and categories. |
 | POST | `/api/v1/public/push/status` | `{endpoint}` → `{subscribed, room, teams}`. |
 | POST | `/api/v1/public/push/unsubscribe` | `{endpoint}` → 204. |
 | POST | `/api/v1/notifications/staff/subscribe` | Register this browser for staff alerts (`notifications:receive`); optional `categories` (`system`, `broadcast`). |
@@ -164,9 +164,8 @@ Alert behaviour (x matches / y minutes ahead, scores, excluded rounds) is config
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/room/{slug}` | Room display: livestream embed, team list, QR code, and live alerts over `/ws/room/{slug}`. 404 for an unknown room. |
-| GET | `/room/{slug}/qr.svg` | QR code linking to `/notify?room={slug}` (uses `PUBLIC_BASE_URL`, else the request host). |
-| GET | `/notify?room={slug}` | Phone page: pick teams from the room and turn on notifications. |
+| GET | `/room/{slug}` | Room display: livestream embed, team list and live alerts over `/ws/room/{slug}`. 404 for an unknown room. |
+| GET | `/notify` | Public phone page: pick any team(s) (list from `/api/v1/public/site/teams`) and turn on notifications. No QR, room or login. |
 | GET | `/sw.js`, `/notify.webmanifest` | Service worker and PWA manifest (iOS only delivers push to a web app added to the Home Screen). |
 
 ## Prompter

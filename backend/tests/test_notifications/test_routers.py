@@ -21,8 +21,8 @@ pytestmark = pytest.mark.asyncio
 KEYS = {"p256dh": "BKey", "auth": "aSecret"}
 
 
-def team_body(endpoint="a", room="r1", teams=("1234A",)):
-    return {"endpoint": VALID_ENDPOINT + endpoint, "keys": KEYS, "room": room, "teams": list(teams)}
+def team_body(endpoint="a", teams=("1234A",)):
+    return {"endpoint": VALID_ENDPOINT + endpoint, "keys": KEYS, "teams": list(teams)}
 
 
 @pytest.fixture
@@ -110,19 +110,18 @@ async def test_vapid_key_503_when_unconfigured(ctx, monkeypatch):
 
 
 async def test_subscribe_update_status_unsubscribe(ctx, session_factory):
-    await make_room(ctx)
     resp = await ctx.post("/api/v1/public/push/subscribe", json=team_body(teams=("1234a",)))
-    assert resp.status_code == 200 and resp.json() == {"subscribed": True, "room": "r1", "teams": ["1234A"], "categories": None}
+    assert resp.status_code == 200 and resp.json() == {"subscribed": True, "teams": ["1234A"], "categories": None}
 
     # Same endpoint again replaces the team list (no duplicate subscription).
     resp = await ctx.post("/api/v1/public/push/subscribe", json=team_body(teams=("1234A", "5678B")))
     assert resp.json()["teams"] == ["1234A", "5678B"]
     async with session_factory() as session:
         subs = (await session.execute(select(PushSubscription))).scalars().all()
-        assert len(subs) == 1 and subs[0].kind == KIND_TEAM and subs[0].room_slug == "r1"
+        assert len(subs) == 1 and subs[0].kind == KIND_TEAM and subs[0].room_slug is None
 
     status = await ctx.post("/api/v1/public/push/status", json={"endpoint": VALID_ENDPOINT + "a"})
-    assert status.json() == {"subscribed": True, "room": "r1", "teams": ["1234A", "5678B"], "categories": None}
+    assert status.json() == {"subscribed": True, "teams": ["1234A", "5678B"], "categories": None}
     unknown = await ctx.post("/api/v1/public/push/status", json={"endpoint": VALID_ENDPOINT + "other"})
     assert unknown.json()["subscribed"] is False
 
@@ -132,19 +131,29 @@ async def test_subscribe_update_status_unsubscribe(ctx, session_factory):
         assert (await session.execute(select(PushSubscriptionTeam))).first() is None  # cascade
 
 
+async def test_subscribe_is_open_no_room_or_qr_needed(ctx, session_factory):
+    # No rooms exist at all, no room/token in the body, no auth: still works,
+    # for any team (not tied to a room), and several teams at once.
+    ctx.state["principal"] = None
+    resp = await ctx.post("/api/v1/public/push/subscribe", json=team_body("open", teams=("9999Z", "10173y")))
+    assert resp.status_code == 200 and resp.json()["teams"] == ["10173Y", "9999Z"]
+    # A legacy client still sending `room` is accepted and the key ignored.
+    legacy = {**team_body("legacy"), "room": "nope"}
+    assert (await ctx.post("/api/v1/public/push/subscribe", json=legacy)).status_code == 200
+    async with session_factory() as session:
+        subs = (await session.execute(select(PushSubscription))).scalars().all()
+        assert len(subs) == 2 and all(s.room_slug is None for s in subs)
+
+
 async def test_subscribe_validation(ctx):
-    await make_room(ctx)
-    # team not in that room
-    resp = await ctx.post("/api/v1/public/push/subscribe", json=team_body(teams=("9999Z",)))
-    assert resp.status_code == 422 and "9999Z" in resp.json()["detail"]
-    # unknown room
-    assert (await ctx.post("/api/v1/public/push/subscribe", json=team_body(room="nope"))).status_code == 404
     # non-push-service endpoint
     bad = team_body()
     bad["endpoint"] = "https://evil.example.com/x"
     assert (await ctx.post("/api/v1/public/push/subscribe", json=bad)).status_code == 422
     # no teams
     assert (await ctx.post("/api/v1/public/push/subscribe", json=team_body(teams=()))).status_code == 422
+    # malformed team number
+    assert (await ctx.post("/api/v1/public/push/subscribe", json=team_body(teams=("12 34; DROP",)))).status_code == 422
 
 
 async def test_public_writes_are_rate_limited(ctx, monkeypatch):
@@ -173,7 +182,7 @@ async def test_staff_subscribe_and_stats(ctx, session_factory):
         assert staff.user_subject == "tester" and staff.categories == ["system"] and staff.room_slug is None
 
     stats = (await ctx.get("/api/v1/notifications/stats")).json()
-    assert stats == {"push_configured": True, "team_subscriptions": 1, "staff_subscriptions": 1, "subscriptions_by_room": {"r1": 1}}
+    assert stats == {"push_configured": True, "team_subscriptions": 1, "staff_subscriptions": 1, "subscriptions_by_room": {}}
 
     assert (await ctx.post("/api/v1/notifications/staff/unsubscribe", json={"endpoint": VALID_ENDPOINT + "staff1"})).status_code == 204
     assert (await ctx.get("/api/v1/notifications/stats")).json()["staff_subscriptions"] == 0
@@ -182,8 +191,8 @@ async def test_staff_subscribe_and_stats(ctx, session_factory):
 async def test_broadcast_endpoint(ctx, pushes):
     await make_room(ctx, "r1", ("1234A",))
     await make_room(ctx, "r2", ("5678B",))
-    await ctx.post("/api/v1/public/push/subscribe", json=team_body("t1", "r1", ("1234A",)))
-    await ctx.post("/api/v1/public/push/subscribe", json=team_body("t2", "r2", ("5678B",)))
+    await ctx.post("/api/v1/public/push/subscribe", json=team_body("t1", ("1234A",)))
+    await ctx.post("/api/v1/public/push/subscribe", json=team_body("t2", ("5678B",)))
 
     resp = await ctx.post("/api/v1/notifications/broadcast", json={"title": "Hi", "message": "Everyone", "rooms": ["r1"]})
     assert resp.status_code == 200 and resp.json() == {"rooms": 1, "pushed": 1}
@@ -206,44 +215,25 @@ async def test_test_push_requires_config(ctx, pushes, monkeypatch):
 # ── public pages ─────────────────────────────────────────────────────
 
 
-async def test_room_page_qr_and_assets(ctx):
+async def test_room_page_notify_page_and_assets(ctx):
     await make_room(ctx, "pit-1")
     page = await ctx.get("/room/pit-1")
     assert page.status_code == 200 and '"pit-1"' in page.text and "__ROOM_SLUG__" not in page.text
     assert (await ctx.get("/room/missing")).status_code == 404
     assert (await ctx.get("/room/Bad%20Slug")).status_code == 404
 
-    qr = await ctx.get("/room/pit-1/qr.svg", headers={"x-forwarded-proto": "https", "x-forwarded-host": "tm.example.org"})
-    assert qr.status_code == 200 and qr.headers["content-type"].startswith("image/svg+xml") and "<svg" in qr.text
+    # The QR mechanism is gone.
+    assert (await ctx.get("/room/pit-1/qr.svg")).status_code == 404
     assert (await ctx.get("/room/missing/qr.svg")).status_code == 404
 
+    # The notify page is public and needs no room param; it lists every team.
     notify = await ctx.get("/notify")
     assert notify.status_code == 200 and "pushManager" in notify.text
+    assert "public/site/teams" in notify.text and "QR" not in notify.text and "ROOM" not in notify.text
     sw = await ctx.get("/sw.js")
     assert sw.status_code == 200 and "showNotification" in sw.text and sw.headers["service-worker-allowed"] == "/"
-    manifest = (await ctx.get("/notify.webmanifest", params={"room": "pit-1"})).json()
-    assert manifest["start_url"] == "/notify?room=pit-1" and manifest["display"] == "standalone"
-    assert (await ctx.get("/notify.webmanifest", params={"room": "../x"})).json()["start_url"] == "/notify"
-
-
-async def test_qr_encodes_public_base_url(ctx, monkeypatch):
-    import io
-
-    import segno
-
-    await make_room(ctx, "pit-1")
-    monkeypatch.setattr(settings, "PUBLIC_BASE_URL", "https://tm.example.org/")
-    qr = await ctx.get("/room/pit-1/qr.svg")
-    buf = io.BytesIO()
-    segno.make("https://tm.example.org/notify?room=pit-1", error="m").save(
-        buf, kind="svg", scale=10, border=2, dark="#000000", light="#ffffff", xmldecl=False
-    )
-    assert qr.content == buf.getvalue()  # encodes exactly the configured public URL
-    from backend.routers.public_pages import notify_url
-    from starlette.requests import Request
-
-    scope = {"type": "http", "headers": [], "server": ("x", 80), "scheme": "http", "path": "/", "query_string": b""}
-    assert notify_url(Request(scope), "pit-1") == "https://tm.example.org/notify?room=pit-1"
+    manifest = (await ctx.get("/notify.webmanifest")).json()
+    assert manifest["start_url"] == "/notify" and manifest["display"] == "standalone"
 
 
 # ── ws relay ─────────────────────────────────────────────────────────

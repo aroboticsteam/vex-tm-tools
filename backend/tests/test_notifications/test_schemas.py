@@ -50,7 +50,7 @@ def test_room_create_cleans_teams_and_validates_slug():
     ],
 )
 def test_known_push_services_accepted(endpoint):
-    sub = TeamSubscribe(endpoint=endpoint, keys=KEYS, room="r", teams=["1a", "1A"])
+    sub = TeamSubscribe(endpoint=endpoint, keys=KEYS, teams=["1a", "1A"])
     assert sub.teams == ["1A"]
 
 
@@ -71,6 +71,6 @@ def test_other_endpoints_rejected_to_prevent_ssrf(endpoint):
 
 def test_team_subscribe_requires_teams():
     with pytest.raises(ValidationError):
-        TeamSubscribe(endpoint="https://fcm.googleapis.com/x", keys=KEYS, room="r", teams=[])
+        TeamSubscribe(endpoint="https://fcm.googleapis.com/x", keys=KEYS, teams=[])
     with pytest.raises(ValidationError):
-        TeamSubscribe(endpoint="https://fcm.googleapis.com/x", keys=KEYS, room="r", teams=["  "])
+        TeamSubscribe(endpoint="https://fcm.googleapis.com/x", keys=KEYS, teams=["  "])

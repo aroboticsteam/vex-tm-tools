@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { ExternalLink, Pencil, Plus, QrCode, Send, Trash2 } from 'lucide-react';
+import { ExternalLink, Pencil, Plus, Send, Trash2 } from 'lucide-react';
 import { useBroadcast, useNotificationStats, useTestPush } from '../api/notifications';
 import { useCreateRoom, useDeleteRoom, useRooms, useUpdateRoom } from '../api/rooms';
 import { usePermission } from '../hooks/usePermission';
 import { useUiStore } from '../stores/ui';
 import { Button } from '../components/ui/Button';
 import { Card, PageHeader } from '../components/ui/Card';
-import { CopyButton } from '../components/ui/CopyButton';
 import { Input, Label, Textarea } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { Toggle } from '../components/ui/Toggle';
@@ -17,8 +16,8 @@ import type { Room } from '../types/api';
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,49}$/;
 
 /** Rooms: named groups of teams. Each has a public display page (`/room/<slug>`,
- * with an optional livestream embed and live match alerts) and a QR code that
- * lets people in the room subscribe to alerts for just that room's teams. */
+ * with an optional livestream embed and live match alerts). Phone alerts are
+ * open to everyone at `/notify` (any team, no QR), so rooms carry no QR. */
 export function RoomsPage() {
   const { data: rooms, isLoading } = useRooms();
   const canManage = usePermission('rooms:manage');
@@ -29,10 +28,9 @@ export function RoomsPage() {
   const pushToast = useUiStore((s) => s.pushToast);
 
   const [editing, setEditing] = useState<Room | 'new' | null>(null);
-  const [qrRoom, setQrRoom] = useState<Room | null>(null);
 
   function remove(room: Room) {
-    if (!window.confirm(`Delete room "${room.name}"? Its phone subscriptions are kept but lose their room.`)) return;
+    if (!window.confirm(`Delete room "${room.name}"?`)) return;
     deleteRoom.mutate(room.slug, {
       onSuccess: () => pushToast('Room deleted', 'success'),
       onError: (err) => pushToast(err instanceof Error ? err.message : 'Delete failed', 'error'),
@@ -43,7 +41,7 @@ export function RoomsPage() {
     <div>
       <PageHeader
         title="Rooms"
-        subtitle="Team allocations with a display page (livestream + match alerts) and a QR code for phone notifications."
+        subtitle="Team allocations with a display page (livestream + match alerts). Phone notifications are open to everyone at /notify (any team, no QR)."
         action={
           canManage && (
             <Button variant="primary" onClick={() => setEditing('new')}>
@@ -82,9 +80,6 @@ export function RoomsPage() {
                   <ExternalLink size={14} /> Display
                 </Button>
               </a>
-              <Button variant="secondary" onClick={() => setQrRoom(room)}>
-                <QrCode size={14} /> QR
-              </Button>
               {canManage && (
                 <>
                   <Button variant="ghost" onClick={() => setEditing(room)} title="Edit">
@@ -108,7 +103,6 @@ export function RoomsPage() {
       {canSeeStats && stats?.push_configured && <StaffPushCard staffCount={stats.staff_subscriptions} />}
 
       <RoomFormModal key={editing === null ? 'closed' : editing === 'new' ? 'new' : editing.slug} editing={editing} onClose={() => setEditing(null)} />
-      <QrModal room={qrRoom} onClose={() => setQrRoom(null)} />
     </div>
   );
 }
@@ -172,36 +166,6 @@ function RoomFormModal({ editing, onClose }: { editing: Room | 'new' | null; onC
           </Button>
         </div>
       </div>
-    </Modal>
-  );
-}
-
-function QrModal({ room, onClose }: { room: Room | null; onClose: () => void }) {
-  const notifyUrl = room ? `${window.location.origin}/notify?room=${encodeURIComponent(room.slug)}` : '';
-  return (
-    <Modal open={room !== null} onClose={onClose} title={room ? `${room.name} — phone alerts QR` : ''}>
-      {room && (
-        <div className="space-y-3 text-center">
-          <img
-            src={`/room/${encodeURIComponent(room.slug)}/qr.svg`}
-            alt={`QR code for ${room.name}`}
-            className="mx-auto w-64 rounded-lg bg-white p-2"
-          />
-          <p className="break-all text-xs text-vmd-textSubtle">{notifyUrl}</p>
-          <div className="flex justify-center gap-2">
-            <CopyButton value={notifyUrl} />
-            <a href={`/room/${room.slug}/qr.svg`} download={`${room.slug}-qr.svg`}>
-              <Button variant="secondary" type="button">
-                Download SVG
-              </Button>
-            </a>
-          </div>
-          <p className="text-xs text-vmd-textSubtle">
-            The room display page shows this QR automatically. Set <code>PUBLIC_BASE_URL</code> on the server if the
-            address above isn&apos;t the one phones should use.
-          </p>
-        </div>
-      )}
     </Modal>
   );
 }

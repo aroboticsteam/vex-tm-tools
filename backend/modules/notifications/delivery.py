@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, or_, select, update
 
 from backend.core.settings import settings
 from backend.models.notification import KIND_STAFF, KIND_TEAM, PushSubscription, PushSubscriptionTeam
@@ -196,6 +196,18 @@ def _wants(sub: PushSubscription, category: str | None) -> bool:
     return category is None or sub.categories is None or category in sub.categories
 
 
+def _in_rooms(rooms: list[str]) -> Any:
+    """Subscriptions relevant to the given rooms: following a team that is in
+    one of them (subscriptions are no longer tied to a room), or a legacy
+    subscription made from one of them."""
+    in_room = (
+        select(PushSubscriptionTeam.subscription_id)
+        .join(RoomTeam, RoomTeam.team_number == PushSubscriptionTeam.team_number)
+        .where(RoomTeam.room_slug.in_(rooms))
+    )
+    return or_(PushSubscription.room_slug.in_(rooms), PushSubscription.id.in_(in_room))
+
+
 async def team_subscriptions(
     session_factory: Any,
     team_numbers: list[str] | tuple[str, ...],
@@ -203,7 +215,7 @@ async def team_subscriptions(
     category: str | None = None,
 ) -> list[tuple[PushSubscription, list[str]]]:
     """Team-kind subscriptions subscribed to any of `team_numbers` (optionally
-    restricted to subscriptions made from the given rooms, and to those that
+    restricted to subscriptions relevant to the given rooms, and to those that
     haven't opted out of `category`), each paired with the subset of
     `team_numbers` it follows."""
     if not team_numbers:
@@ -215,7 +227,7 @@ async def team_subscriptions(
             .where(PushSubscription.kind == KIND_TEAM, PushSubscriptionTeam.team_number.in_(list(team_numbers)))
         )
         if rooms is not None:
-            stmt = stmt.where(PushSubscription.room_slug.in_(rooms))
+            stmt = stmt.where(_in_rooms(rooms))
         rows = (await session.execute(stmt)).all()
     grouped: dict[uuid.UUID, tuple[PushSubscription, list[str]]] = {}
     for sub, team in rows:
@@ -231,7 +243,7 @@ async def all_team_subscriptions(
     async with session_factory() as session:
         stmt = select(PushSubscription).where(PushSubscription.kind == KIND_TEAM)
         if rooms is not None:
-            stmt = stmt.where(PushSubscription.room_slug.in_(rooms))
+            stmt = stmt.where(_in_rooms(rooms))
         subs = list((await session.execute(stmt)).scalars().all())
     return [s for s in subs if _wants(s, category)]
 
@@ -250,8 +262,8 @@ def _target(sub: PushSubscription, payload: dict[str, Any]) -> PushTarget:
 
 def team_payload(sub: PushSubscription, title: str, body: str, *, tag: str, kind: str) -> dict[str, Any]:
     """Push payload for a team-facing subscription; the click target is the
-    room display the subscriber signed up from (if any)."""
-    url = f"/room/{sub.room_slug}" if sub.room_slug else "/"
+    room display a legacy subscriber signed up from, else the team site."""
+    url = f"/room/{sub.room_slug}" if sub.room_slug else "/site"
     return {"title": title, "body": body, "tag": tag, "url": url, "kind": kind}
 
 

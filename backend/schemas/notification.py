@@ -1,14 +1,16 @@
 """Pydantic schemas for push subscriptions and staff broadcasts."""
 from __future__ import annotations
 
+import re
 from typing import Literal
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from backend.schemas.room import SLUG_PATTERN
 
 MAX_TEAMS_PER_SUBSCRIPTION = 30
+#: VEX team numbers: digits plus an optional letter suffix (e.g. 1234A, 10173Y).
+TEAM_NUMBER_RE = re.compile(r"^[A-Z0-9]{1,12}$")
 _MAX_ENDPOINT_LEN = 2048
 
 #: The server POSTs to whatever endpoint a (public, unauthenticated) client
@@ -45,7 +47,8 @@ class PushSubscriptionIn(BaseModel):
 
 
 class TeamSubscribe(PushSubscriptionIn):
-    room: str = Field(..., pattern=SLUG_PATTERN)
+    #: Any team: there is no room/QR gating. (A legacy `room` key in old
+    #: clients' payloads is ignored.)
     teams: list[str] = Field(..., min_length=1, max_length=MAX_TEAMS_PER_SUBSCRIPTION)
     #: Alert categories to receive (`arrival`, `late`, `score`, `announcement`);
     #: omitted = all of them. Staff broadcasts are always delivered.
@@ -68,6 +71,8 @@ class TeamSubscribe(PushSubscriptionIn):
         out: list[str] = []
         for t in v:
             t = t.strip().upper()
+            if t and not TEAM_NUMBER_RE.match(t):
+                raise ValueError(f"Invalid team number: {t[:20]}")
             if t and t not in out:
                 out.append(t)
         if not out:
@@ -85,7 +90,6 @@ class EndpointRef(BaseModel):
 
 class SubscriptionStatus(BaseModel):
     subscribed: bool
-    room: str | None = None
     teams: list[str] = Field(default_factory=list)
     #: Categories the subscriber receives (null = all).
     categories: list[str] | None = None
@@ -131,6 +135,8 @@ class TeamAlertRequest(BaseModel):
         out: list[str] = []
         for t in v:
             t = t.strip().upper()
+            if t and not TEAM_NUMBER_RE.match(t):
+                raise ValueError(f"Invalid team number: {t[:20]}")
             if t and t not in out:
                 out.append(t)
         if not out:

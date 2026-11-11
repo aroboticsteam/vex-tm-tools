@@ -94,13 +94,6 @@ class Settings(BaseSettings):
         default="mailto:admin@example.com",
         description="`sub` claim for VAPID — a mailto: or https: contact for the push services.",
     )
-    PUBLIC_BASE_URL: str = Field(
-        default="",
-        description=(
-            "Externally reachable base URL (e.g. https://tm.example.org) encoded into room QR "
-            "codes. Falls back to the request's own base URL when unset."
-        ),
-    )
     LOG_LEVEL: str = Field(
         default="INFO",
         description=(

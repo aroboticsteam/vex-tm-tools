@@ -34,7 +34,7 @@
 <body>
 <main>
   <h1 id="title">Match alerts</h1>
-  <p class="muted" id="sub">Pick your team(s) and get a notification before each match and when scores are posted.</p>
+  <p class="muted" id="sub">Pick any team(s) and get a notification before each match and when scores are posted.</p>
   <div id="msg" class="msg" hidden></div>
 
   <div id="ios" class="msg" hidden>
@@ -59,13 +59,9 @@
 </main>
 <script>
 (function () {
-  var params = new URLSearchParams(location.search);
-  var ROOM = params.get('room') || '';
-  var STORE = 'tmtools-notify-' + ROOM;
+  var STORE = 'tmtools-notify';
   var msgEl = document.getElementById('msg');
-  var room = null, selected = {}, subscribed = false, reg = null;
-
-  if (ROOM) document.getElementById('manifest').href = '/notify.webmanifest?room=' + encodeURIComponent(ROOM);
+  var allTeams = [], selected = {}, subscribed = false, reg = null;
 
   function show(text, isErr) {
     msgEl.textContent = text; msgEl.hidden = !text; msgEl.className = 'msg' + (isErr ? ' err' : '');
@@ -95,7 +91,7 @@
     var q = document.getElementById('filter').value.trim().toUpperCase();
     var list = document.getElementById('teams');
     list.replaceChildren();
-    room.teams.filter(function (t) { return !q || t.indexOf(q) !== -1; }).forEach(function (t) {
+    allTeams.filter(function (t) { return !q || t.indexOf(q) !== -1; }).forEach(function (t) {
       var row = document.createElement('label'); row.className = 'row';
       var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!selected[t];
       cb.addEventListener('change', function () { if (cb.checked) selected[t] = true; else delete selected[t]; updateButtons(); });
@@ -130,7 +126,7 @@
       var sub = await reg.pushManager.getSubscription();
       if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
       var teams = Object.keys(selected);
-      await api('/api/v1/public/push/subscribe', { endpoint: sub.endpoint, keys: sub.toJSON().keys, room: ROOM, teams: teams, categories: chosenCategories() });
+      await api('/api/v1/public/push/subscribe', { endpoint: sub.endpoint, keys: sub.toJSON().keys, teams: teams, categories: chosenCategories() });
       subscribed = true;
       try { localStorage.setItem(STORE, JSON.stringify(teams)); } catch (e) {}
       show('You\'re all set — alerts on for: ' + teams.join(', '));
@@ -150,11 +146,10 @@
   }
 
   async function init() {
-    if (!ROOM) { show('Scan the QR code on your room\'s display to get started.', true); return; }
-    try { room = await api('/api/v1/public/rooms/' + encodeURIComponent(ROOM)); }
-    catch (e) { show('This room wasn\'t found. Scan the QR code again.', true); return; }
-    document.title = room.name + ' – match alerts';
-    document.getElementById('title').textContent = room.name + ' — match alerts';
+    try {
+      allTeams = (await api('/api/v1/public/site/teams')).map(function (t) { return t.team_number; })
+        .filter(Boolean).sort(function (a, b) { return a.localeCompare(b, undefined, { numeric: true }); });
+    } catch (e) { show('Could not load the team list: ' + (e.message || e), true); return; }
 
     if (isIos && !standalone) document.getElementById('ios').hidden = false;
     if (!supported) {
@@ -171,7 +166,7 @@
       var existing = await reg.pushManager.getSubscription();
       if (existing) {
         var st = await api('/api/v1/public/push/status', { endpoint: existing.endpoint });
-        if (st.subscribed && st.room === ROOM) {
+        if (st.subscribed) {
           subscribed = true; selected = {}; st.teams.forEach(function (t) { selected[t] = true; });
           applyCategories(st.categories);
           renderTeams();
