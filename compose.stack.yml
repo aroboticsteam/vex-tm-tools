@@ -1,0 +1,779 @@
+# Self-contained TMTools stack: app (pulled from ghcr.io) + Traefik (wildcard
+# TLS, host-based routing) + Authelia (OIDC login) backed by LLDAP (users and
+# password changes) + Postgres + Redis + Garage (S3), plus optional lighting
+# tracker, Mumble and a Cloudflare tunnel. One self-contained file (configs and
+# scripts are inlined below), so it can be copied anywhere and saved as
+# compose.yml:
+#
+#   docker compose -f compose.stack.yml up -d
+#   docker compose -f compose.stack.yml --profile lighting --profile voice --profile tunnel up -d
+#
+# Secrets (SECRET_KEY, ENCRYPTION_KEY, admin password, S3 keys, LLDAP secrets)
+# are generated on first start and kept in the `secrets` volume; the admin
+# password is printed by `docker compose -f compose.stack.yml logs secrets-init`.
+#
+# Hostnames (all under BASE_DOMAIN, default vex.localhost, which browsers
+# resolve to 127.0.0.1 with no hosts edit; for the event: qerobotics.co.uk):
+#   tmtools.BASE   the app (OIDC redirect host, PUBLIC_BASE_URL)
+#   auth.BASE      Authelia login portal / OIDC issuer
+#   s3.BASE        Garage S3 (presigned URLs handed to browsers/OBS)
+#   ldap.BASE      LLDAP admin UI (users, groups, password changes)
+#   lighting.BASE  lighting tracker, behind Authelia forward auth
+#   comp.BASE      public competitors page (/site) via the Cloudflare tunnel
+#   mumble.BASE    Mumble voice (plain TCP/UDP 64738, not routed by Traefik)
+# Any other hostname or IP on :80/:443 still reaches the app (/admin_login works).
+#
+# Certificates: Traefik asks Let's Encrypt for BASE + *.BASE with the DNS-01
+# challenge (Cloudflare) when CF_DNS_API_TOKEN is set. Until a certificate
+# exists (or if the token is empty) Traefik serves the self-signed fallback made
+# by cert-init, so the stack always starts.
+#
+# Optional overrides via shell env or a `.env` / `--env-file`:
+#   BASE_DOMAIN            see above. A hostname, not an IP (Authelia cookies).
+#   TMTOOLS_IMAGE          app image (default ghcr.io/aroboticsteam/vex-tm-tools:backend)
+#   ADMIN_LOCAL_PASSWORD   fixed admin password instead of a generated one
+#                          (only read on the very first start). Same password
+#                          for /admin_login, the LLDAP/Authelia user `admin`.
+#   CF_DNS_API_TOKEN       Cloudflare token (Zone:DNS:Edit on the one zone) for ACME.
+#   ACME_EMAIL             Let's Encrypt contact (default acme@BASE_DOMAIN).
+#   ACME_CA_SERVER         e.g. the LE staging URL while testing.
+#   EXTRA_CA_FILE          host path of a PEM bundle to trust (e.g. a TLS-inspecting
+#                          firewall's CA) for the app, Traefik/lego and cloudflared.
+#   CLOUDFLARE_TUNNEL_TOKEN  token for `--profile tunnel` (public hostname
+#                          comp.BASE -> http://traefik:8081 set in Cloudflare).
+#   MUMBLE_PASSWORD        server password for `--profile voice`.
+#   LIGHTING_IMAGE         default ghcr.io/aroboticsteam/lightpoint:latest
+#   LIGHTING_CONFIG_DIR    host dir with fixtures.json for `--profile lighting`,
+#                          writable by uid 1000 (default ./lighting-config).
+#   HOST_GATEWAY_IP        docker0 address (default 172.17.0.1): the lighting UI
+#                          binds to it so Traefik, not the LAN, is the only way in.
+#
+# Ports: 80/443 (Traefik), 3000 (app direct), 64738 tcp+udp (Mumble, voice profile).
+
+x-app-image: &app-image ${TMTOOLS_IMAGE:-ghcr.io/aroboticsteam/vex-tm-tools:backend}
+
+x-app-env: &app-env
+  POSTGRES_DSN: postgresql+asyncpg://qecomp:qecomp@postgres:5432/qecomp
+  REDIS_URL: redis://redis:6379/0
+  S3_ENDPOINT_URL: http://garage:3900
+  S3_PUBLIC_ENDPOINT_URL: https://s3.${BASE_DOMAIN:-vex.localhost}
+  OIDC_ISSUER_URL: https://auth.${BASE_DOMAIN:-vex.localhost}
+  OIDC_CLIENT_ID: qecomp
+  OIDC_GROUPS_CLAIM: groups
+  # System roots + the stack's self-signed cert + EXTRA_CA_FILE (built by
+  # cert-init) so the backend can reach Authelia/S3 and the internet over HTTPS.
+  SSL_CERT_FILE: /certs/ca-bundle.pem
+  S3_BUCKET: qecomp
+  S3_REGION: us-east-1
+  PUBLIC_BASE_URL: https://tmtools.${BASE_DOMAIN:-vex.localhost}
+  APP_PORT: "8000"
+
+name: tmtools-stack
+
+services:
+  secrets-init:
+    image: *app-image
+    pull_policy: always
+    user: root
+    environment:
+      ADMIN_LOCAL_PASSWORD: ${ADMIN_LOCAL_PASSWORD:-}
+    entrypoint: ["python", "/gen/gen-secrets.py"]
+    volumes:
+      - secrets:/secrets
+    restart: "no"
+    configs:
+      - source: cfg_gen_secrets
+        target: /gen/gen-secrets.py
+
+  cert-init:
+    image: alpine:3.20
+    environment:
+      BASE_DOMAIN: ${BASE_DOMAIN:-vex.localhost}
+    entrypoint: ["sh", "/gen/gen-cert.sh"]
+    volumes:
+      - certs:/certs
+      - ${EXTRA_CA_FILE:-/dev/null}:/extra-ca.pem:ro
+    restart: "no"
+    configs:
+      - source: cfg_gen_cert
+        target: /gen/gen-cert.sh
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: qecomp
+      POSTGRES_PASSWORD: qecomp
+      POSTGRES_DB: qecomp
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qecomp -d qecomp"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  garage:
+    image: dxflrs/garage:v1.1.0
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+    volumes:
+      - secrets:/secrets:ro
+      - garage_meta:/var/lib/garage/meta
+      - garage_data:/var/lib/garage/data
+    restart: unless-stopped
+    configs:
+      - source: cfg_garage
+        target: /etc/garage.toml
+
+  garage-init:
+    image: alpine:3.20
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+      garage:
+        condition: service_started
+    environment:
+      S3_BUCKET: qecomp
+    entrypoint: ["sh", "/gen/garage-init.sh"]
+    volumes:
+      - secrets:/secrets:ro
+    restart: "no"
+    configs:
+      - source: cfg_garage_init
+        target: /gen/garage-init.sh
+
+  migrate:
+    image: *app-image
+    depends_on:
+      postgres:
+        condition: service_healthy
+      secrets-init:
+        condition: service_completed_successfully
+    environment: *app-env
+    entrypoint: ["sh", "-c", ". /secrets/env && alembic upgrade head"]
+    volumes:
+      - secrets:/secrets:ro
+    restart: "no"
+
+  app:
+    image: *app-image
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      garage-init:
+        condition: service_completed_successfully
+      cert-init:
+        condition: service_completed_successfully
+      authelia:
+        condition: service_started
+    environment: *app-env
+    entrypoint:
+      - sh
+      - -c
+      - ". /secrets/env && exec uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=*"
+    volumes:
+      - secrets:/secrets:ro
+      - certs:/certs:ro
+    ports:
+      - "3000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  authelia-init:
+    image: authelia/authelia:4.39
+    user: root
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+    environment:
+      BASE_DOMAIN: ${BASE_DOMAIN:-vex.localhost}
+    entrypoint: ["sh", "/gen/authelia-init.sh"]
+    volumes:
+      - secrets:/secrets:ro
+      - authelia:/config
+    restart: "no"
+    configs:
+      - source: cfg_authelia_init
+        target: /gen/authelia-init.sh
+
+  # Users, groups and password changes. Authelia authenticates against it.
+  # Admin UI at https://ldap.BASE (log in as `admin`, same password as
+  # /admin_login on first start).
+  lldap:
+    image: lldap/lldap:2026-09-22-alpine
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+    environment:
+      LLDAP_LDAP_BASE_DN: dc=tmtools,dc=local
+      LLDAP_HTTP_URL: https://ldap.${BASE_DOMAIN:-vex.localhost}
+      LLDAP_JWT_SECRET_FILE: /secrets/lldap_jwt
+      LLDAP_KEY_SEED_FILE: /secrets/lldap_key_seed
+      LLDAP_LDAP_USER_PASS_FILE: /secrets/lldap_admin_pass
+    volumes:
+      - secrets:/secrets:ro
+      - lldap:/data
+    healthcheck:
+      test: ["CMD", "/app/lldap", "healthcheck", "--config-file", "/data/lldap_config.toml"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  # Creates the `qecomp-admin` group (the app's `*` role) and puts `admin` in it.
+  lldap-init:
+    image: alpine:3.20
+    depends_on:
+      lldap:
+        condition: service_healthy
+    entrypoint: ["sh", "/gen/lldap-init.sh"]
+    volumes:
+      - secrets:/secrets:ro
+    restart: "no"
+    configs:
+      - source: cfg_lldap_init
+        target: /gen/lldap-init.sh
+
+  authelia:
+    image: authelia/authelia:4.39
+    depends_on:
+      authelia-init:
+        condition: service_completed_successfully
+      lldap-init:
+        condition: service_completed_successfully
+    environment:
+      AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE: /secrets/authelia_jwt
+      AUTHELIA_SESSION_SECRET_FILE: /secrets/authelia_session
+      AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: /secrets/authelia_storage
+      AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET_FILE: /secrets/authelia_oidc_hmac
+      AUTHELIA_AUTHENTICATION_BACKEND_LDAP_PASSWORD_FILE: /secrets/lldap_admin_pass
+    volumes:
+      - secrets:/secrets:ro
+      - authelia:/config
+    restart: unless-stopped
+
+  traefik:
+    image: traefik:v3.1
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
+      app:
+        condition: service_started
+      authelia:
+        condition: service_started
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    environment:
+      CF_DNS_API_TOKEN: ${CF_DNS_API_TOKEN:-}
+      # lego (ACME client) trusts these CAs on top of the system roots.
+      LEGO_CA_CERTIFICATES: /certs/ca-bundle.pem
+    ports:
+      - "80:80"
+      - "443:443"
+    extra_hosts:
+      # The lighting tracker runs on the host network (Art-Net discovery).
+      - "host.docker.internal:${HOST_GATEWAY_IP:-172.17.0.1}"
+    networks:
+      default:
+        # Containers (the app, Authelia's browser redirects) reach these names at
+        # the same https URL browsers use, which the OIDC issuer check requires.
+        aliases:
+          - tmtools.${BASE_DOMAIN:-vex.localhost}
+          - auth.${BASE_DOMAIN:-vex.localhost}
+          - s3.${BASE_DOMAIN:-vex.localhost}
+    volumes:
+      - certs:/certs:ro
+      - acme:/acme
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    configs:
+      - source: cfg_traefik
+        target: /etc/traefik/traefik.yml
+      - source: cfg_dynamic
+        target: /etc/traefik/dynamic.yml
+
+  # Lighting tracker (aroboticsteam/lightpoint). Host networking so the
+  # console's ArtPoll broadcast reaches it; the web UI binds to docker0 only and
+  # is published solely through Traefik + Authelia at https://lighting.BASE.
+  lighting:
+    profiles: [lighting]
+    image: ${LIGHTING_IMAGE:-ghcr.io/aroboticsteam/lightpoint:latest}
+    network_mode: host
+    environment:
+      WEB_HOST: ${HOST_GATEWAY_IP:-172.17.0.1}
+      WEB_PORT: "8080"
+    volumes:
+      - ${LIGHTING_CONFIG_DIR:-./lighting-config}:/config
+    restart: unless-stopped
+
+  # Voice for the desks and iPads. LAN only: plain TCP/UDP, not behind Traefik.
+  # Uses Mumble's own self-signed certificate (a trusted one via
+  # traefik-certs-dumper is a follow-up). Data in the `mumble` volume.
+  mumble:
+    profiles: [voice]
+    image: mumblevoip/mumble-server:v1.6.1001
+    environment:
+      MUMBLE_CONFIG_SERVERPASSWORD: ${MUMBLE_PASSWORD:-}
+      MUMBLE_CONFIG_WELCOMETEXT: "QE Comp voice"
+      MUMBLE_CONFIG_USERS: "100"
+    ports:
+      - "64738:64738/tcp"
+      - "64738:64738/udp"
+    volumes:
+      - mumble:/data
+    restart: unless-stopped
+
+  # Cloudflare tunnel for the public competitors page only. Cloudflare terminates
+  # TLS; the tunnel's public hostname (comp.BASE) points at http://traefik:8081,
+  # an entrypoint that serves only the allowlisted /site paths (see cfg_dynamic).
+  cloudflared:
+    profiles: [tunnel]
+    image: cloudflare/cloudflared:2026.10.7
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+      # TCP 7844 instead of QUIC/UDP, friendlier to firewalls.
+      TUNNEL_TRANSPORT_PROTOCOL: http2
+      SSL_CERT_FILE: /certs/ca-bundle.pem
+    volumes:
+      - certs:/certs:ro
+    depends_on:
+      traefik:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  secrets:
+  certs:
+  postgres_data:
+  redis_data:
+  garage_meta:
+  garage_data:
+  authelia:
+  lldap:
+  acme:
+  mumble:
+
+configs:
+  cfg_traefik:
+    content: |
+      # Static Traefik config for compose.stack.yml.
+      # Routing lives in dynamic.yml (file provider), no Docker socket is mounted.
+      entryPoints:
+        web:
+          address: ":80"
+          transport: &transport
+            respondingTimeouts:
+              # Uploads (multi-GB videos) and WebSockets must not be cut off.
+              readTimeout: 0
+              writeTimeout: 0
+              idleTimeout: 0s
+        websecure:
+          address: ":443"
+          transport: *transport
+        # Reachable only inside the compose network (not published): the
+        # Cloudflare tunnel's origin. Serves the public competitors page only.
+        public:
+          address: ":8081"
+          transport: *transport
+
+      certificatesResolvers:
+        le:
+          acme:
+            email: ${ACME_EMAIL:-acme@${BASE_DOMAIN:-vex.localhost}}
+            storage: /acme/acme.json
+            caServer: ${ACME_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
+            dnsChallenge:
+              provider: cloudflare
+
+      providers:
+        file:
+          filename: /etc/traefik/dynamic.yml
+          watch: true
+
+      ping:
+        entryPoint: web
+
+      log:
+        level: INFO
+      accessLog: {}
+  cfg_dynamic:
+    content: |
+      tls:
+        certificates:
+          - certFile: /certs/cert.pem
+            keyFile: /certs/key.pem
+        stores:
+          default:
+            # Self-signed fallback until the ACME certificate is issued.
+            defaultCertificate:
+              certFile: /certs/cert.pem
+              keyFile: /certs/key.pem
+
+      http:
+        middlewares:
+          authelia:
+            forwardAuth:
+              address: http://authelia:9091/api/authz/forward-auth
+              trustForwardHeader: true
+              authResponseHeaders: [Remote-User, Remote-Groups, Remote-Email, Remote-Name]
+        routers:
+          # Catch-all: no Host rule, lowest priority. Any other hostname or IP on
+          # :80/:443 goes to the app. (Login only works over https: the app's
+          # session cookie is Secure.)
+          app-http:
+            rule: "PathPrefix(`/`)"
+            entryPoints: [web]
+            service: app
+            priority: 1
+          app-https:
+            rule: "PathPrefix(`/`)"
+            entryPoints: [websecure]
+            service: app
+            priority: 1
+            tls: {}
+          # Named hosts. This router also carries the ACME request: one wildcard
+          # certificate for BASE and *.BASE.
+          app:
+            rule: "Host(`tmtools.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [websecure]
+            service: app
+            tls:
+              certResolver: le
+              domains:
+                - main: "${BASE_DOMAIN:-vex.localhost}"
+                  sans: ["*.${BASE_DOMAIN:-vex.localhost}"]
+          authelia:
+            rule: "Host(`auth.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [websecure]
+            service: authelia
+            tls: {}
+          s3:
+            rule: "Host(`s3.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [websecure]
+            service: garage-s3
+            tls: {}
+          ldap:
+            rule: "Host(`ldap.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [websecure]
+            service: lldap
+            tls: {}
+          lighting:
+            rule: "Host(`lighting.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [websecure]
+            middlewares: [authelia]
+            service: lighting
+            tls: {}
+          # Cloudflare tunnel origin: only the competitors host and only the
+          # public site page + its API. Everything else is a 404.
+          public-site:
+            rule: >-
+              Host(`comp.${BASE_DOMAIN:-vex.localhost}`) &&
+              (Path(`/site`) || Path(`/site/leaderboard`) || PathPrefix(`/api/v1/public/site/`))
+            entryPoints: [public]
+            service: app
+        services:
+          app:
+            loadBalancer:
+              servers:
+                - url: http://app:8000
+          authelia:
+            loadBalancer:
+              servers:
+                - url: http://authelia:9091
+          garage-s3:
+            loadBalancer:
+              servers:
+                - url: http://garage:3900
+          lldap:
+            loadBalancer:
+              servers:
+                - url: http://lldap:17170
+          lighting:
+            loadBalancer:
+              servers:
+                - url: http://host.docker.internal:8080
+  cfg_garage:
+    content: |
+      metadata_dir = "/var/lib/garage/meta"
+      data_dir = "/var/lib/garage/data"
+      db_engine = "sqlite"
+      replication_factor = 1
+
+      rpc_bind_addr = "[::]:3902"
+      rpc_public_addr = "garage:3902"
+      # Generated by the secrets-init service into the shared volume.
+      rpc_secret_file = "/secrets/garage_rpc_secret"
+      allow_world_readable_secrets = true
+
+      [s3_api]
+      s3_region = "us-east-1"
+      api_bind_addr = "[::]:3900"
+
+      [admin]
+      api_bind_addr = "[::]:3903"
+      admin_token_file = "/secrets/garage_admin_token"
+  cfg_gen_secrets:
+    content: |
+      """Generate every secret the stack needs into the shared /secrets volume.
+
+      Idempotent: values that already exist are never changed, so the data already
+      encrypted with ENCRYPTION_KEY (and the S3 key Garage knows) stay valid across
+      restarts and upgrades; newly introduced secrets (e.g. the LLDAP ones) are
+      added next to an existing /secrets/env. Delete the `secrets` volume only
+      together with the others.
+      """
+      import os
+      import secrets
+      import shlex
+      from pathlib import Path
+
+      from cryptography.fernet import Fernet
+
+      d = Path("/secrets")
+      env = d / "env"
+      first_run = not env.exists()
+
+      if first_run:
+          admin_pw = os.environ.get("ADMIN_LOCAL_PASSWORD") or secrets.token_urlsafe(18)
+          values = {
+              "SECRET_KEY": secrets.token_urlsafe(48),
+              "ENCRYPTION_KEY": Fernet.generate_key().decode(),
+              "ADMIN_LOCAL_PASSWORD": admin_pw,
+              # Garage key ids must be "GK" + 24 hex chars; secrets are 64 hex chars.
+              "S3_ACCESS_KEY": "GK" + secrets.token_hex(12),
+              "S3_SECRET_KEY": secrets.token_hex(32),
+              # OIDC client secret the app presents to Authelia (Authelia stores a digest).
+              "OIDC_CLIENT_SECRET": secrets.token_urlsafe(32),
+          }
+          env.write_text("".join(f"export {k}={shlex.quote(v)}\n" for k, v in values.items()))
+      else:
+          admin_pw = ""
+          for line in env.read_text().splitlines():
+              if line.startswith("export ADMIN_LOCAL_PASSWORD="):
+                  admin_pw = shlex.split(line[len("export "):])[0].split("=", 1)[1]
+
+      def put(name, value):
+          f = d / name
+          if not f.exists():
+              f.write_text(value)
+
+      put("garage_rpc_secret", secrets.token_hex(32))
+      put("garage_admin_token", secrets.token_urlsafe(32))
+      for name in ("authelia_jwt", "authelia_session", "authelia_storage", "authelia_oidc_hmac",
+                   "lldap_jwt", "lldap_key_seed"):
+          put(name, secrets.token_urlsafe(48))
+      # The LLDAP/Authelia `admin` user starts with the same password as /admin_login.
+      put("lldap_admin_pass", admin_pw)
+      for p in d.iterdir():
+          p.chmod(0o644)
+
+      if not first_run:
+          print("secrets already generated (missing ones topped up)")
+          raise SystemExit(0)
+
+      print("=" * 60)
+      print("TMTools first-run credentials (stored in the `secrets` volume)")
+      print("  login:    /admin_login   user: admin_local")
+      print(f"  password: {admin_pw}")
+      print("  users:    https://ldap.<BASE_DOMAIN> (LLDAP, user: admin, same password)")
+      print("  re-print: docker compose -f compose.stack.yml run --rm --no-deps"
+            " --entrypoint cat secrets-init /secrets/env")
+      print("=" * 60)
+  cfg_gen_cert:
+    content: |
+      #!/bin/sh
+      # Self-signed fallback certificate for Traefik (the ACME one replaces it when issued).
+      # Regenerated only when BASE_DOMAIN or EXTRA_CA_FILE changes.
+      set -eu
+      host="$${BASE_DOMAIN:-vex.localhost}"
+      marker="$$host:$$(cksum < /extra-ca.pem)"
+      if [ -f /certs/cert.pem ] && [ "$$(cat /certs/host 2>/dev/null)" = "$$marker" ]; then
+        echo "certificate for $$host already present"; exit 0
+      fi
+      apk add --no-cache openssl ca-certificates >/dev/null
+      san="DNS:localhost,IP:127.0.0.1,IP:::1"
+      if echo "$$host" | grep -Eq '^[0-9.]+$$|:'; then san="$$san,IP:$$host"; else san="$$san,DNS:$$host,DNS:*.$$host"; fi
+      openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+        -keyout /certs/key.pem -out /certs/cert.pem \
+        -subj "/O=TMTools/CN=$$host" -addext "subjectAltName=$$san"
+      # CA bundle for the app/lego/cloudflared (SSL_CERT_FILE): system roots + our cert
+      # (+ EXTRA_CA_FILE), so they trust the self-signed fallback without losing public CAs.
+      cat /etc/ssl/certs/ca-certificates.crt /certs/cert.pem > /certs/ca-bundle.pem
+      if [ -s /extra-ca.pem ]; then cat /extra-ca.pem >> /certs/ca-bundle.pem; echo "added EXTRA_CA_FILE to the CA bundle"; fi
+      echo "$$marker" > /certs/host
+      chmod 644 /certs/*.pem
+      echo "generated self-signed certificate for $$san"
+  cfg_garage_init:
+    content: |
+      #!/bin/sh
+      # Bring a fresh single-node Garage to a usable state: cluster layout, the app's
+      # S3 key, the bucket and its permissions + CORS. Safe to re-run.
+      set -eu
+      apk add --no-cache curl jq aws-cli >/dev/null
+      . /secrets/env
+      API=http://garage:3903
+      auth="Authorization: Bearer $$(cat /secrets/garage_admin_token)"
+      api() { curl -sf -H "$$auth" -H 'Content-Type: application/json' "$$@"; }
+
+      until api "$$API/v1/status" >/dev/null 2>&1; do echo "waiting for garage admin API"; sleep 2; done
+
+      node=$$(api "$$API/v1/status" | jq -r '.node')
+      version=$$(api "$$API/v1/layout" | jq -r '.version')
+      if [ "$$version" = "0" ]; then
+        echo "assigning cluster layout"
+        api -X POST "$$API/v1/layout" \
+          -d "[{\"id\":\"$$node\",\"zone\":\"dc1\",\"capacity\":1099511627776,\"tags\":[]}]" >/dev/null
+        api -X POST "$$API/v1/layout/apply" -d '{"version":1}' >/dev/null
+      fi
+
+      if ! api "$$API/v1/key?id=$$S3_ACCESS_KEY" >/dev/null 2>&1; then
+        echo "importing S3 key"
+        api -X POST "$$API/v1/key/import" \
+          -d "{\"name\":\"tmtools\",\"accessKeyId\":\"$$S3_ACCESS_KEY\",\"secretAccessKey\":\"$$S3_SECRET_KEY\"}" >/dev/null
+      fi
+
+      bucket_id=$$(api "$$API/v1/bucket?globalAlias=$$S3_BUCKET" 2>/dev/null | jq -r '.id // empty' || true)
+      if [ -z "$$bucket_id" ]; then
+        echo "creating bucket $$S3_BUCKET"
+        bucket_id=$$(api -X POST "$$API/v1/bucket" -d "{\"globalAlias\":\"$$S3_BUCKET\"}" | jq -r '.id')
+      fi
+      api -X POST "$$API/v1/bucket/allow" \
+        -d "{\"bucketId\":\"$$bucket_id\",\"accessKeyId\":\"$$S3_ACCESS_KEY\",\"permissions\":{\"read\":true,\"write\":true,\"owner\":true}}" >/dev/null
+
+      # Browsers fetch presigned URLs cross-origin (video, WebGL chroma preview, recorder uploads).
+      export AWS_ACCESS_KEY_ID="$$S3_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="$$S3_SECRET_KEY" AWS_DEFAULT_REGION=us-east-1
+      aws --endpoint-url http://garage:3900 s3api put-bucket-cors --bucket "$$S3_BUCKET" --cors-configuration \
+        '{"CORSRules":[{"AllowedOrigins":["*"],"AllowedMethods":["GET","PUT","POST","HEAD"],"AllowedHeaders":["*"],"ExposeHeaders":["ETag"],"MaxAgeSeconds":3600}]}'
+      echo "garage ready: bucket $$S3_BUCKET"
+  cfg_lldap_init:
+    content: |
+      #!/bin/sh
+      # Create the `qecomp-admin` group in LLDAP and add `admin` to it. Safe to re-run.
+      # Gives up quietly if `admin` can no longer log in with the generated
+      # password (it was changed in the UI), the group then already exists.
+      set -u
+      apk add --no-cache curl jq >/dev/null
+      pass=$$(cat /secrets/lldap_admin_pass)
+      body=$$(jq -n --arg p "$$pass" '{username:"admin",password:$$p}')
+      token=""
+      for i in $$(seq 1 30); do
+        token=$$(curl -sf -X POST http://lldap:17170/auth/simple/login -H 'Content-Type: application/json' -d "$$body" | jq -r '.token // empty') || true
+        [ -n "$$token" ] && break
+        sleep 2
+      done
+      if [ -z "$$token" ]; then echo "could not log in to LLDAP as admin; skipping group setup"; exit 0; fi
+      gql() { curl -sf -X POST http://lldap:17170/api/graphql -H "Authorization: Bearer $$token" -H 'Content-Type: application/json' -d "$$1"; }
+      gid=$$(gql '{"query":"{groups{id displayName}}"}' | jq -r '.data.groups[] | select(.displayName=="qecomp-admin") | .id')
+      if [ -z "$$gid" ]; then
+        gid=$$(gql '{"query":"mutation{createGroup(name:\"qecomp-admin\"){id}}"}' | jq -r '.data.createGroup.id')
+        echo "created group qecomp-admin ($$gid)"
+      fi
+      gql "{\"query\":\"mutation{addUserToGroup(userId:\\\"admin\\\",groupId:$$gid){ok}}\"}" >/dev/null || true
+      echo "lldap ready: admin is in qecomp-admin"
+  cfg_authelia_init:
+    content: |
+      #!/bin/sh
+      # Render Authelia's config from the generated secrets (users live in LLDAP).
+      # Runs on every start (cheap, idempotent); the OIDC signing key is created once.
+      set -eu
+      . /secrets/env
+      base="$${BASE_DOMAIN:-vex.localhost}"
+      cd /config
+      mkdir -p data
+      if [ ! -f oidc_key.pem ]; then
+        mkdir -p /tmp/k
+        authelia crypto pair rsa generate --bits 2048 --directory /tmp/k >/dev/null
+        mv /tmp/k/private.pem oidc_key.pem
+      fi
+      client_hash=$$(authelia crypto hash generate pbkdf2 --password "$$OIDC_CLIENT_SECRET" | sed 's/^Digest: //')
+      rm -f users_database.yml
+
+      cat > configuration.yml <<YAML
+      theme: auto
+      server:
+        address: "tcp://:9091"
+      log:
+        level: info
+      # No SMTP on site: identity-verification codes (password reset/change) are
+      # written to this file. Users can also change their password in LLDAP.
+      notifier:
+        filesystem:
+          filename: /config/data/notification.txt
+      authentication_backend:
+        password_change:
+          disable: false
+        password_reset:
+          disable: false
+        ldap:
+          implementation: lldap
+          address: ldap://lldap:3890
+          base_dn: dc=tmtools,dc=local
+          user: uid=admin,ou=people,dc=tmtools,dc=local
+          # password: AUTHELIA_AUTHENTICATION_BACKEND_LDAP_PASSWORD_FILE
+      access_control:
+        default_policy: one_factor
+        rules:
+          - domain: lighting.$$base
+            policy: one_factor
+            subject: ["group:qecomp-admin"]
+          - domain: lighting.$$base
+            policy: deny
+      session:
+        cookies:
+          - domain: $$base
+            authelia_url: "https://auth.$$base"
+            default_redirection_url: "https://tmtools.$$base"
+            name: authelia_session
+      storage:
+        local:
+          path: /config/data/db.sqlite3
+      identity_providers:
+        oidc:
+          jwks:
+            - key: |
+      $$(sed 's/^/          /' oidc_key.pem)
+          claims_policies:
+            tmtools:
+              id_token: [email, email_verified, preferred_username, groups, name]
+          clients:
+            - client_id: qecomp
+              client_name: TMTools
+              claims_policy: tmtools
+              client_secret: "$$client_hash"
+              public: false
+              authorization_policy: one_factor
+              redirect_uris:
+                - "https://tmtools.$$base/auth/callback"
+                - "https://localhost/auth/callback"
+              scopes: [openid, profile, email, groups]
+              userinfo_signed_response_alg: none
+              token_endpoint_auth_method: client_secret_post
+      YAML
+      echo "authelia config rendered for $$base"
