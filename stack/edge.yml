@@ -111,6 +111,13 @@ configs:
               address: http://authelia:9091/api/authz/forward-auth
               trustForwardHeader: true
               authResponseHeaders: [Remote-User, Remote-Groups, Remote-Email, Remote-Name]
+          # comp.BASE/ -> /site. A redirect rather than a path prefix: the page
+          # calls absolute /api/v1/public/site/... URLs, which a prefix would break.
+          comp-root:
+            redirectRegex:
+              regex: "^https?://([^/]+)/?$"
+              replacement: "https://$${1}/site"
+              permanent: false
         routers:
           # Catch-all: no Host rule, lowest priority. Any other hostname or IP on
           # :80/:443 goes to the app. (Login only works over https: the app's
@@ -153,14 +160,46 @@ configs:
             middlewares: [authelia]
             service: lighting
             tls: {}
-          # Cloudflare tunnel origin: only the competitors host and only the
-          # public site page + its API. Everything else is a 404.
+          # comp.BASE (public competitors page): only "/" (redirected to /site),
+          # the page and its API are served, on the tunnel origin (:8081, via
+          # Cloudflare) and on the LAN (:443). Anything else on that host is
+          # blocked, so the full app is never reachable under this name.
+          # Tunnel origin (plain http; Cloudflare terminates TLS).
+          public-root:
+            rule: "Host(`comp.${BASE_DOMAIN:-vex.localhost}`) && Path(`/`)"
+            entryPoints: [public]
+            middlewares: [comp-root]
+            service: noop@internal
+            priority: 100
           public-site:
             rule: >-
               Host(`comp.${BASE_DOMAIN:-vex.localhost}`) &&
               (Path(`/site`) || Path(`/site/leaderboard`) || PathPrefix(`/api/v1/public/site/`))
             entryPoints: [public]
             service: app
+            priority: 100
+          # Same on the LAN (https).
+          public-root-lan:
+            rule: "Host(`comp.${BASE_DOMAIN:-vex.localhost}`) && Path(`/`)"
+            entryPoints: [websecure]
+            middlewares: [comp-root]
+            service: noop@internal
+            priority: 100
+            tls: {}
+          public-site-lan:
+            rule: >-
+              Host(`comp.${BASE_DOMAIN:-vex.localhost}`) &&
+              (Path(`/site`) || Path(`/site/leaderboard`) || PathPrefix(`/api/v1/public/site/`))
+            entryPoints: [websecure]
+            service: app
+            priority: 100
+            tls: {}
+          public-block:
+            rule: "Host(`comp.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [websecure]
+            service: noop@internal
+            priority: 10
+            tls: {}
         services:
           app:
             loadBalancer:
