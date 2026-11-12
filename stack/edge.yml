@@ -129,7 +129,7 @@ configs:
           # https or the http callback: see the Authelia OIDC redirect URIs.)
           # Named hosts (certificate: the self-signed wildcard for BASE and *.BASE).
           app:
-            rule: "Host(`tmtools.${BASE_DOMAIN:-vex.localhost}`)"
+            rule: "Host(`tmtools.${BASE_DOMAIN:-vex.localhost}`) || Host(`qecomp-server.local`)"
             entryPoints: [websecure]
             service: app
             tls: {}
@@ -180,7 +180,7 @@ configs:
           # The other named hosts on plain :80, for the homelab ingress backup
           # path (it forwards Host unchanged). Same services as the https routers.
           app-web:
-            rule: "Host(`tmtools.${BASE_DOMAIN:-vex.localhost}`)"
+            rule: "Host(`tmtools.${BASE_DOMAIN:-vex.localhost}`) || Host(`qecomp-server.local`)"
             entryPoints: [web]
             service: app
           authelia-web:

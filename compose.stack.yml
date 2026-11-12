@@ -14,7 +14,7 @@
 #
 # Hostnames (all under BASE_DOMAIN, default vex.localhost, which browsers
 # resolve to 127.0.0.1 with no hosts edit; for the event: qerobotics.co.uk):
-#   tmtools.BASE   the app (OIDC redirect host, PUBLIC_BASE_URL)
+#   tmtools.BASE   the app (OIDC redirect host, PUBLIC_BASE_URL); also qecomp-server.local
 #   auth.BASE      Authelia login portal / OIDC issuer
 #   s3.BASE        Garage S3 (presigned URLs handed to browsers/OBS)
 #   ldap.BASE      LLDAP admin UI (users, groups, password changes)
@@ -50,7 +50,7 @@
 #   HOST_GATEWAY_IP        docker0 address (default 172.17.0.1): the lighting UI
 #                          binds to it so Traefik, not the LAN, is the only way in.
 #
-# Ports: 80/443 (Traefik), 3000 (app direct), 64738 tcp+udp (Mumble, voice profile).
+# Ports: 80/443 (Traefik), 64738 tcp+udp (Mumble, voice profile).
 
 name: tmtools-stack
 
