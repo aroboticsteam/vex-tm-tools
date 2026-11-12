@@ -20,14 +20,26 @@ services:
   # https://BASE (landing page) and https://stats.BASE (VEX IQ / V5 leaderboards,
   # which proxies the RobotEvents API with VEX_API_KEY). Images come from the
   # local registry because the school network blocks ghcr.io. Behind Traefik only
-  # (no published ports). Branding via SITES_TITLE / SITES_TAGLINE in .env.
+  # (no published ports). Branding via SITES_* in .env (SITES_NAV_LINKS / SITES_CARDS
+  # are JSON arrays; logos/images go in SITES_MEDIA_DIR, served at /media/).
   site-home:
     profiles: [sites]
     image: ${SITE_HOME_IMAGE:-registry.kmnet.uk/robotics-home:latest}
     environment:
       SITE_TITLE: ${SITES_TITLE:-QE Robotics}
       TAGLINE: ${SITES_TAGLINE:-}
+      WELCOME_HEADING: ${SITES_WELCOME_HEADING:-}
       STATS_URL: https://stats.${BASE_DOMAIN:-vex.localhost}
+      NAV_LINKS: ${SITES_NAV_LINKS:-}
+      CARDS: ${SITES_CARDS:-}
+      LOGO_URL: ${SITES_LOGO_URL:-}
+      LOGO_ALT: ${SITES_LOGO_ALT:-}
+      LOGO_HREF: ${SITES_LOGO_HREF:-}
+      LOGO_WHITE_BG: ${SITES_LOGO_WHITE_BG:-true}
+      FOOTER_TEXT: ${SITES_FOOTER_TEXT:-}
+      FOOTER_SECONDARY_TEXT: ${SITES_FOOTER_SECONDARY_TEXT:-VEX Robotics Competition}
+    volumes:
+      - ${SITES_MEDIA_DIR:-./sites-media}:/media:ro
     restart: unless-stopped
 
   site-stats:
@@ -39,6 +51,14 @@ services:
       TEAMS_V5RC: ${TEAMS_V5RC:-}
       SITE_TITLE: ${SITES_TITLE:-QE Robotics} Stats
       HOME_URL: https://${BASE_DOMAIN:-vex.localhost}
+      LOGO_URL: ${SITES_LOGO_URL:-}
+      LOGO_ALT: ${SITES_LOGO_ALT:-}
+      LOGO_HREF: ${SITES_LOGO_HREF:-}
+      LOGO_WHITE_BG: ${SITES_LOGO_WHITE_BG:-true}
+      FOOTER_TEXT: ${SITES_FOOTER_TEXT:-}
+      FOOTER_SECONDARY_TEXT: ${SITES_FOOTER_SECONDARY_TEXT:-VEX Robotics Competition}
+    volumes:
+      - ${SITES_MEDIA_DIR:-./sites-media}:/media:ro
     restart: unless-stopped
 
   # Lighting tracker (aroboticsteam/lightpoint). Host networking so the
