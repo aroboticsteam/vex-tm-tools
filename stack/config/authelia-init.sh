@@ -71,6 +71,8 @@ $(sed 's/^/          /' oidc_key.pem)
         redirect_uris:
           - "https://tmtools.$base/auth/callback"
           - "http://tmtools.$base/auth/callback"
+          - "https://qecomp-server.local/auth/callback"
+          - "http://qecomp-server.local/auth/callback"
           - "https://localhost/auth/callback"
         scopes: [openid, profile, email, groups]
         userinfo_signed_response_alg: none

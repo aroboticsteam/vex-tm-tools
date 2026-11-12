@@ -131,8 +131,6 @@ services:
     volumes:
       - secrets:/secrets:ro
       - certs:/certs:ro
-    ports:
-      - "3000:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/healthz', timeout=3)"]
       interval: 10s
