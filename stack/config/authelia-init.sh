@@ -70,6 +70,7 @@ $(sed 's/^/          /' oidc_key.pem)
         authorization_policy: one_factor
         redirect_uris:
           - "https://tmtools.$base/auth/callback"
+          - "http://tmtools.$base/auth/callback"
           - "https://localhost/auth/callback"
         scopes: [openid, profile, email, groups]
         userinfo_signed_response_alg: none
