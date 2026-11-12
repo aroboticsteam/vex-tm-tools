@@ -18,6 +18,7 @@
 #   auth.BASE      Authelia login portal / OIDC issuer
 #   s3.BASE        Garage S3 (presigned URLs handed to browsers/OBS)
 #   ldap.BASE      LLDAP admin UI (users, groups, password changes)
+#   BASE, stats.BASE  public robotics sites (--profile sites; needs VEX_API_KEY, TEAMS_VIQRC, TEAMS_V5RC)
 #   lighting.BASE  lighting tracker, behind Authelia forward auth
 #   comp.BASE      public competitors page (/site) via the Cloudflare tunnel
 #   mumble.BASE    Mumble voice (plain TCP/UDP 64738, not routed by Traefik)
