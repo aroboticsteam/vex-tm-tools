@@ -133,6 +133,24 @@ configs:
             entryPoints: [websecure]
             service: app
             tls: {}
+          site-home:
+            rule: "Host(`${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [websecure]
+            service: site-home
+            tls: {}
+          site-stats:
+            rule: "Host(`stats.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [websecure]
+            service: site-stats
+            tls: {}
+          site-home-web:
+            rule: "Host(`${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [web]
+            service: site-home
+          site-stats-web:
+            rule: "Host(`stats.${BASE_DOMAIN:-vex.localhost}`)"
+            entryPoints: [web]
+            service: site-stats
           authelia:
             rule: "Host(`auth.${BASE_DOMAIN:-vex.localhost}`)"
             entryPoints: [websecure]
@@ -235,6 +253,14 @@ configs:
             loadBalancer:
               servers:
                 - url: http://app:8000
+          site-home:
+            loadBalancer:
+              servers:
+                - url: http://site-home:8080
+          site-stats:
+            loadBalancer:
+              servers:
+                - url: http://site-stats:8080
           authelia:
             loadBalancer:
               servers:

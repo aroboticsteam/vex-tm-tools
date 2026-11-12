@@ -16,6 +16,31 @@ services:
     cap_add: [NET_ADMIN]
     restart: unless-stopped
 
+  # Public robotics sites (aroboticsteam/robotics-home and robotics-stats):
+  # https://BASE (landing page) and https://stats.BASE (VEX IQ / V5 leaderboards,
+  # which proxies the RobotEvents API with VEX_API_KEY). Images come from the
+  # local registry because the school network blocks ghcr.io. Behind Traefik only
+  # (no published ports). Branding via SITES_TITLE / SITES_TAGLINE in .env.
+  site-home:
+    profiles: [sites]
+    image: ${SITE_HOME_IMAGE:-registry.kmnet.uk/robotics-home:latest}
+    environment:
+      SITE_TITLE: ${SITES_TITLE:-QE Robotics}
+      TAGLINE: ${SITES_TAGLINE:-}
+      STATS_URL: https://stats.${BASE_DOMAIN:-vex.localhost}
+    restart: unless-stopped
+
+  site-stats:
+    profiles: [sites]
+    image: ${SITE_STATS_IMAGE:-registry.kmnet.uk/robotics-stats:latest}
+    environment:
+      VEX_API_KEY: ${VEX_API_KEY:-}
+      TEAMS_VIQRC: ${TEAMS_VIQRC:-}
+      TEAMS_V5RC: ${TEAMS_V5RC:-}
+      SITE_TITLE: ${SITES_TITLE:-QE Robotics} Stats
+      HOME_URL: https://${BASE_DOMAIN:-vex.localhost}
+    restart: unless-stopped
+
   # Lighting tracker (aroboticsteam/lightpoint). Host networking so the
   # console's ArtPoll broadcast reaches it; the web UI binds to docker0 only and
   # is published solely through Traefik + Authelia at https://lighting.BASE.
