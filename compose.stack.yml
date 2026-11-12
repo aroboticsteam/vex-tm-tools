@@ -21,7 +21,8 @@
 #   lighting.BASE  lighting tracker, behind Authelia forward auth
 #   comp.BASE      public competitors page (/site) via the Cloudflare tunnel
 #   mumble.BASE    Mumble voice (plain TCP/UDP 64738, not routed by Traefik)
-# Any other hostname or IP on :80/:443 still reaches the app (/admin_login works).
+# Only these hostnames are routed: any other hostname or a bare IP on :80/:443
+# gets Traefik's 404 (no catch-all). For /admin_login use https://tmtools.BASE.
 #
 # Certificates: cert-init makes a self-signed wildcard (BASE + *.BASE) that Traefik
 # serves; clients must trust it (or accept the warning). ACME/Let's Encrypt is
@@ -48,9 +49,6 @@
 #                          writable by uid 1000 (default ./lighting-config).
 #   HOST_GATEWAY_IP        docker0 address (default 172.17.0.1): the lighting UI
 #                          binds to it so Traefik, not the LAN, is the only way in.
-#
-# Region protection: GEO_ALLOW_COUNTRIES (default GB; "GB|IE" for several) limits traffic that came through
-# Cloudflare (CF-IPCountry); LAN/tailnet clients are unaffected.
 #
 # Ports: 80/443 (Traefik), 3000 (app direct), 64738 tcp+udp (Mumble, voice profile).
 
