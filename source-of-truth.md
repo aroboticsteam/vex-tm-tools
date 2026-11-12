@@ -812,3 +812,4 @@ Build order for the replay chain: #45 → #42 → #38 → #41. Not planned: Shea
 - **Hero full-bleed (2026-11-11):** the homepage hero breaks out of the 1100px content column to the full viewport width (`width: 100vw`) so the image fills the screen.
 
 - **Region protection (2026-11-11):** Traefik router `geo-block` (priority 1000000, entrypoints `web` + `public`) refuses requests whose `CF-IPCountry` header is present and not in `GEO_ALLOW_COUNTRIES` (default `GB`); no header (LAN/tailnet) = allowed. Homelab ingress adds the strict form (non-private peers must be Cloudflare + GB).
+- **2026-11-12:** `dns` profile dnsmasq (stack/extras.yml) now passes `--interface=eth0` (without it dnsmasq's default local-service rule drops queries NATed in from the LAN) and the deployment sets `DNS_UPSTREAM=172.16.1.10` (the Pi network's resolver) instead of the 1.1.1.1 default.

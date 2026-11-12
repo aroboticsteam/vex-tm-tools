@@ -9,7 +9,7 @@ services:
   dns:
     profiles: [dns]
     image: alpine:3.20
-    entrypoint: ["sh", "-c", "apk add --no-cache dnsmasq >/dev/null && exec dnsmasq --keep-in-foreground --no-daemon --no-resolv --no-hosts --cache-size=1000 --log-queries=extra --log-facility=- --server=${DNS_UPSTREAM:-1.1.1.1} --address=/${BASE_DOMAIN:-vex.localhost}/${DNS_ANSWER_IP:-127.0.0.1}"]
+    entrypoint: ["sh", "-c", "apk add --no-cache dnsmasq >/dev/null && exec dnsmasq --keep-in-foreground --no-daemon --no-resolv --no-hosts --interface=eth0 --cache-size=1000 --log-queries=extra --log-facility=- --server=${DNS_UPSTREAM:-1.1.1.1} --address=/${BASE_DOMAIN:-vex.localhost}/${DNS_ANSWER_IP:-127.0.0.1}"]
     ports:
       - "${DNS_BIND_IP:-127.0.0.1}:53:53/udp"
       - "${DNS_BIND_IP:-127.0.0.1}:53:53/tcp"
