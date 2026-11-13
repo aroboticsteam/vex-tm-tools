@@ -168,13 +168,19 @@
     return s;
   }
   // Match rows: IQ gets one "Teams" column and one score; VRC keeps red/blue.
+  // The match number links to its video when one exists.
+  function matchLabel(m) {
+    if (!m.recording_url) return m.label;
+    var a = el('a', null, m.label); a.href = m.recording_url; a.target = '_blank'; a.rel = 'noopener'; a.title = 'Watch ' + m.label;
+    return a;
+  }
   function matchTable(ms, selfNumber, empty) {
     var iq = ms.length > 0 && ms.every(isIq);
     var heads = iq ? ['Match', 'Time', 'Teams', 'Score', ''] : ['Match', 'Time', 'Red', 'Blue', 'Score', ''];
     return table(heads, ms.map(function (m) {
       var sc = m.score ? (iq ? String(m.score[0]) : m.score[0] + ' – ' + m.score[1]) : '';
-      if (iq) return tr([m.label, fmtTime(m.scheduled_at), teamsCell(m, selfNumber), sc, recLink(m)], '');
-      return tr([m.label, fmtTime(m.scheduled_at), alliance(m.red, 'red', selfNumber), alliance(m.blue, 'blue', selfNumber), sc, recLink(m)], '');
+      if (iq) return tr([matchLabel(m), fmtTime(m.scheduled_at), teamsCell(m, selfNumber), sc, recLink(m)], '');
+      return tr([matchLabel(m), fmtTime(m.scheduled_at), alliance(m.red, 'red', selfNumber), alliance(m.blue, 'blue', selfNumber), sc, recLink(m)], '');
     }), empty);
   }
   function hasVrc(d, rows) { return rows.some(function (r) { var dv = d.divisions[r.division]; return dv && dv.programme === 'vrc'; }); }
@@ -435,7 +441,7 @@
           if (typeof avg === 'number') tile('Average score', avg.toFixed(1));
           tile('High score', r.high_score !== undefined ? r.high_score : r.highScore);
           if (t.programme !== 'iq' && r.wins !== undefined && r.wins !== null) tile('Record (W-L-T)', r.wins + '-' + (r.losses || 0) + '-' + (r.ties || 0));
-          if (r.division && r.division.name) tile('Division', r.division.name);
+          tile('Finals ranking', r.finals_rank);
           if (tiles.childNodes.length) card.appendChild(tiles);
         });
         if (e.awards.length) { var chips = el('div', 'chips'); e.awards.forEach(function (a) { chips.appendChild(el('span', 'chip', '🏆 ' + a)); }); card.appendChild(chips); }

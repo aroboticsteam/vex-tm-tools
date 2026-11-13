@@ -686,6 +686,39 @@ class Scraper:
                 self._re_next_slot = max(self._re_next_slot, time.monotonic() + delay)
         return resp
 
+    async def _attach_finals_ranks(self, rows: list[dict[str, Any]], team_id: Any, headers: dict[str, str]) -> None:
+        """Adds `finals_rank` to each previous-ranking row: the team's rank in
+        that event's finalist rankings (`GET /events/{id}/divisions/{id}/finalistRankings`,
+        filtered to this team), or `None` when the event had no finals for it
+        or the call failed. One extra limiter-paced call per row, run a few at
+        a time; a failure never fails the profile (the field just stays None)."""
+        gate = asyncio.Semaphore(4)
+
+        async def one(row: Any) -> None:
+            if not isinstance(row, dict):
+                return
+            row["finals_rank"] = None
+            event_id = (row.get("event") or {}).get("id")
+            division_id = (row.get("division") or {}).get("id")
+            if event_id is None or division_id is None:
+                return
+            async with gate:
+                try:
+                    resp = await self._re_get(
+                        f"/events/{event_id}/divisions/{division_id}/finalistRankings",
+                        params={"team[]": team_id},
+                        headers=headers,
+                    )
+                    resp.raise_for_status()
+                    for entry in resp.json().get("data", []):
+                        if (entry.get("team") or {}).get("id") == team_id and entry.get("rank") is not None:
+                            row["finals_rank"] = entry["rank"]
+                            break
+                except Exception:
+                    logger.warning("Finalist ranking lookup failed for team %s at event %s", team_id, event_id)
+
+        await asyncio.gather(*(one(r) for r in rows))
+
     async def _prefetch_re_teams(self, numbers: list[str]) -> dict[str, list[dict[str, Any]]]:
         """Batched `GET /teams?number[]=a&number[]=b...` for many team
         numbers at once (instead of one call per team). Returns
@@ -811,6 +844,7 @@ class Scraper:
                 try:
                     rankings_result.raise_for_status()
                     result["previous_rankings"] = rankings_result.json().get("data", [])
+                    await self._attach_finals_ranks(result["previous_rankings"], team_id, headers)
                 except Exception:
                     logger.exception("Failed to fetch RE rankings for team %s", team_id)
                     result["previous_rankings"] = []

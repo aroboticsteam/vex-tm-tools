@@ -285,3 +285,5 @@ async def test_site_page_markers(client):
     assert "Top 50 qualification rankings" in page and "Top 50 skills" in page
     assert "Season history" in page and "'hist'" in page and "Download" in page
     assert "m.score[0]" in page  # IQ shows a single score
+    assert "tile('Finals ranking', r.finals_rank)" in page and "tile('Division'" not in page  # season history shows finals placement
+    assert "function matchLabel" in page and "a.href = m.recording_url" in page  # the match number links to its video
