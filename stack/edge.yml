@@ -197,8 +197,9 @@ configs:
             priority: 10
           # The other named hosts on plain :80, for the homelab ingress backup
           # path (it forwards Host unchanged). Same services as the https routers.
+          # REMOTE_APP_HOST is the homelab ingress hostname (it forwards Host unchanged).
           app-web:
-            rule: "Host(`tmtools.${BASE_DOMAIN:-vex.localhost}`) || Host(`qecomp-server.local`)"
+            rule: "Host(`tmtools.${BASE_DOMAIN:-vex.localhost}`) || Host(`qecomp-server.local`) || Host(`${REMOTE_APP_HOST:-r-tmtools.vmd1.dev}`)"
             entryPoints: [web]
             service: app
           authelia-web:
