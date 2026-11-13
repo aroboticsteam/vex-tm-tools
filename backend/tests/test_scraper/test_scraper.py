@@ -746,3 +746,55 @@ async def test_fetch_from_tm_multi_division_uses_each_teams_own_division(scraper
     assert result["division_id"] == 2
     assert "/api/rankings/2/QUAL" in calls and "/api/rankings/1/QUAL" not in calls
     assert result["skills"] == [{"rank": 2, "number": "5678B", "totalScore": 50}]
+
+
+async def test_previous_rankings_get_a_finals_rank_from_finalist_rankings(scraper, session_factory, mocker):
+    """Each previous-ranking row gains `finals_rank` from that event's
+    finalist rankings (filtered to the team); a missing or failed lookup
+    leaves it None without failing the profile."""
+    async with session_factory() as session:
+        setting = await session.get(SystemSetting, "robot_events_api")
+        original_value = dict(setting.value) if setting else None
+        setting.value = {"token": "fake-token"}
+        await session.commit()
+
+    rows = [
+        {"rank": 14, "event": {"id": 11, "name": "A"}, "division": {"id": 1, "name": "D1"}},
+        {"rank": 7, "event": {"id": 22, "name": "B"}, "division": {"id": 1, "name": "D1"}},
+        {"rank": 3, "event": {"id": 33, "name": "C"}, "division": {"id": 2, "name": "D2"}},
+        {"rank": 9, "event": {"name": "no ids"}, "division": {}},
+    ]
+
+    async def fake_get(url, headers=None, params=None):
+        if url == "/teams":
+            return _FakeResponse({"data": [{"id": 555, "program": {"id": 900, "name": "VIQRC"}}]})
+        if url == "/seasons":
+            return _FakeResponse({"data": [{"id": 777, "name": "Current Season"}]})
+        if url == "/teams/555/rankings":
+            return _FakeResponse({"data": rows})
+        if url in ("/teams/555/awards", "/teams/555/skills"):
+            return _FakeResponse({"data": []})
+        if url == "/events/11/divisions/1/finalistRankings":
+            assert params == {"team[]": 555}
+            return _FakeResponse({"data": [{"rank": 4, "team": {"id": 555}}]})
+        if url == "/events/22/divisions/1/finalistRankings":
+            return _FakeResponse({"data": []})  # no finals for this team
+        if url == "/events/33/divisions/2/finalistRankings":
+            raise RuntimeError("simulated outage")
+        raise AssertionError(f"unexpected URL {url}")
+
+    mocker.patch.object(scraper._re_http, "get", side_effect=fake_get)
+    mocker.patch.object(scraper, "_re_wait_turn", mocker.AsyncMock())
+
+    try:
+        result = await scraper._fetch_from_robot_events("1234A")
+        by_event = {r["event"].get("id"): r["finals_rank"] for r in result["previous_rankings"]}
+        assert by_event == {11: 4, 22: None, 33: None, None: None}
+        assert not result.get("re_incomplete")
+    finally:
+        await scraper._redis.delete("qecomp:re:season:900")
+        if original_value is not None:
+            async with session_factory() as session:
+                setting = await session.get(SystemSetting, "robot_events_api")
+                setting.value = original_value
+                await session.commit()
